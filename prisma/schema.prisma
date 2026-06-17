@@ -1,0 +1,141 @@
+// TFP Customer Service Agent — data model
+// Conversations are threaded by Microsoft Graph `conversationId`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConversationStatus {
+  NEW
+  AWAITING_REVIEW
+  AWAITING_CUSTOMER
+  ESCALATED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum DraftStatus {
+  PENDING
+  APPROVED
+  EDITED
+  REJECTED
+  SENT
+}
+
+enum ReviewAction {
+  APPROVE
+  EDIT
+  REJECT
+}
+
+enum KnowledgeSource {
+  FILE
+  URL
+}
+
+model Conversation {
+  id                  String             @id @default(cuid())
+  graphConversationId String             @unique
+  subject             String?
+  customerEmail       String
+  customerName        String?
+  status              ConversationStatus @default(NEW)
+  // Rolling, compact case summary — the bounded-context state.
+  // Updated incrementally after each turn so follow-ups stay cheap.
+  summary             String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  messages Message[]
+  drafts   Draft[]
+
+  @@index([customerEmail])
+  @@index([status])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  graphMessageId String           @unique
+  direction      MessageDirection
+  fromEmail      String
+  toEmails       String[]
+  bodyText       String
+  bodyHtml       String?
+  receivedAt     DateTime
+  createdAt      DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  drafts       Draft[]
+
+  @@index([conversationId])
+}
+
+model Draft {
+  id               String      @id @default(cuid())
+  conversationId   String
+  // The inbound message that triggered this draft.
+  triggerMessageId String?
+  content          String
+  // Short rationale shown to the human reviewer (intent, confidence, etc.).
+  reasoning        String?
+  status           DraftStatus @default(PENDING)
+  // Classification output (intent, confidence, entities) as JSON.
+  classification   Json?
+  isEscalated      Boolean     @default(false)
+  escalationReasons String[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  triggerMessage Message?     @relation(fields: [triggerMessageId], references: [id], onDelete: SetNull)
+  review         Review?
+
+  @@index([conversationId])
+  @@index([status])
+}
+
+model Review {
+  id            String       @id @default(cuid())
+  draftId       String       @unique
+  reviewerEmail String
+  action        ReviewAction
+  editedContent String?
+  note          String?
+  createdAt     DateTime     @default(now())
+
+  draft Draft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  conversationId String?
+  draftId        String?
+  actor          String
+  action         String
+  detail         Json?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+// Source policy/knowledge documents. In v1 the full text is injected into a
+// cached system prompt; this table tracks the sources for ingestion/versioning.
+model KnowledgeDoc {
+  id         String          @id @default(cuid())
+  title      String
+  sourceType KnowledgeSource
+  sourcePath String
+  content    String
+  checksum   String?
+  updatedAt  DateTime        @updatedAt
+}

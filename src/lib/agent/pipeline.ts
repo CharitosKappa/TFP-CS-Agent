@@ -1,0 +1,65 @@
+import { classifyEmail } from "./classify";
+import { generateDraft } from "./draft";
+import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD } from "./redlines";
+import type { Classification, DraftResult, PromptContext } from "./types";
+
+export interface DraftReplyInput {
+  /** Cached policy/knowledge text (see knowledge/policies.ts). */
+  policies: string;
+  /** Rolling case summary for this conversation ("" for a brand-new one). */
+  caseSummary: string;
+  recentMessages: PromptContext["recentMessages"];
+  incomingMessage: string;
+  /** Pre-computed Shopify context (takes precedence over gatherShopify). */
+  shopifyContext?: string;
+  /**
+   * Lazily fetches Shopify context once the message is classified — gets the
+   * extracted orderNumber/email so we only query what the message is about.
+   */
+  gatherShopify?: (classification: Classification) => Promise<string | undefined>;
+}
+
+/**
+ * End-to-end for one inbound message: classify → gather Shopify → red-line gate → draft.
+ * The caller persists the draft + escalation flags and surfaces it for review.
+ */
+export async function draftReplyForInbound(
+  input: DraftReplyInput,
+): Promise<DraftResult> {
+  const classification = await classifyEmail(input.incomingMessage);
+
+  let shopifyContext = input.shopifyContext;
+  if (!shopifyContext && input.gatherShopify) {
+    try {
+      shopifyContext = await input.gatherShopify(classification);
+    } catch (e) {
+      console.error("shopify gather failed:", e);
+    }
+  }
+
+  const redline = detectRedLines(input.incomingMessage);
+  // Low classifier confidence is itself a red line.
+  if (classification.confidence < ESCALATION_CONFIDENCE_THRESHOLD) {
+    redline.escalate = true;
+    if (!redline.reasons.includes("low_confidence")) {
+      redline.reasons.push("low_confidence");
+    }
+  }
+
+  const ctx: PromptContext = {
+    policies: input.policies,
+    caseSummary: input.caseSummary,
+    recentMessages: input.recentMessages,
+    incomingMessage: input.incomingMessage,
+    shopifyContext,
+  };
+
+  const { content } = await generateDraft(ctx);
+
+  const reasoning =
+    `intent=${classification.intent} confidence=${classification.confidence.toFixed(2)} ` +
+    `sentiment=${classification.sentiment} escalate=${redline.escalate}` +
+    (redline.reasons.length ? ` reasons=${redline.reasons.join(",")}` : "");
+
+  return { content, reasoning, classification, redline };
+}

@@ -1,0 +1,54 @@
+export const INTENTS = [
+  "order_status",
+  "returns_refunds",
+  "shipping",
+  "payment",
+  "product_question",
+  "complaint",
+  "cancellation",
+  "other",
+] as const;
+
+export type Intent = (typeof INTENTS)[number];
+
+export interface Classification {
+  intent: Intent;
+  /** 0..1 — drives low-confidence escalation. */
+  confidence: number;
+  /** ISO language code of the customer's message, e.g. "el", "en". */
+  language: string;
+  orderNumber?: string;
+  customerEmail?: string;
+  sentiment: "positive" | "neutral" | "negative";
+  /** One-line summary of what the customer wants. */
+  summary: string;
+}
+
+export interface RedLineVerdict {
+  escalate: boolean;
+  /** Matched red-line rule keys (e.g. "legal", "gdpr"). */
+  reasons: string[];
+}
+
+/**
+ * The bounded context assembled for each draft.
+ * Cost stays ~flat regardless of thread length:
+ *  - `policies` is identical across every email → cached system block (~0.1x).
+ *  - `caseSummary` is a compact rolling state, updated incrementally per turn.
+ *  - only the recent messages + new message + fresh Shopify data vary.
+ */
+export interface PromptContext {
+  policies: string;
+  caseSummary: string;
+  recentMessages: { direction: "INBOUND" | "OUTBOUND"; body: string }[];
+  incomingMessage: string;
+  shopifyContext?: string;
+}
+
+export interface DraftResult {
+  content: string;
+  /** Rationale surfaced to the human reviewer. */
+  reasoning: string;
+  classification: Classification;
+  redline: RedLineVerdict;
+}
