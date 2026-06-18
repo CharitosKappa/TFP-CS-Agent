@@ -113,6 +113,19 @@ npm run process                       # ή: npx tsx scripts/process.ts <messageI
 περίληψη της συνομιλίας ενημερώνεται, και το status γίνεται `AWAITING_REVIEW` ή
 `ESCALATED`. Συμπληρώστε τα `knowledge/*.md` με τις πραγματικές πολιτικές.
 
+### 7. Review dashboard (Phase 3)
+```bash
+npm run dev          # http://localhost:3000
+```
+- **`/`** — ουρά ελέγχου: όλα τα drafts σε κατάσταση `PENDING`, με escalated πρώτα
+  και μετά FIFO. Κάθε κάρτα δείχνει intent, βεβαιότητα, sentiment, κόκκινες γραμμές.
+- **`/review/[conversationId]`** — όλη η συνομιλία (thread), το draft με το reasoning
+  του agent, και ο editor. Ο ελεγκτής κάνει **Έγκριση** / **Αποθήκευση & έγκριση**
+  (αν τροποποίησε το κείμενο) / **Απόρριψη**, με προαιρετική σημείωση.
+- Κάθε ενέργεια γράφεται ως `Review` + `AuditLog` σε ένα transaction. Η αποστολή του
+  εγκεκριμένου draft γίνεται στο **Phase 4** — η έγκριση εδώ απλώς το μαρκάρει `APPROVED`.
+- Ταυτότητα ελεγκτή: `REVIEWER_EMAIL` (fallback στο `GRAPH_MAILBOX`). Auth → Phase 5.
+
 ## Roadmap
 - **Phase 0 — Scaffold & infra** ✅ (αυτό το commit): project, Prisma schema,
   clients + health checks, agent core skeleton.
@@ -121,8 +134,10 @@ npm run process                       # ή: npx tsx scripts/process.ts <messageI
 - **Phase 2 — Agent core (bounded context) & knowledge** ✅: Shopify tools ανά
   intent (orders/customers/products), rolling summary wired στο draft pipeline,
   multi-file knowledge loader. (Pending: πραγματικό περιεχόμενο πολιτικών + PDF/Word ingest.)
-- **Phase 3 — Red lines & review dashboard:** queue, thread view, draft editor,
-  Approve/Edit/Reject, audit log.
+- **Phase 3 — Red lines & review dashboard** ✅: queue (`/`), thread view +
+  draft editor (`/review/[id]`), Approve/Edit/Reject μέσω Server Actions, audit
+  log ανά συνομιλία. Δεν στέλνει ακόμα — η έγκριση απλώς μαρκάρει το draft
+  `APPROVED` (η αποστολή είναι Phase 4). (Pending: auth → Phase 5.)
 - **Phase 4 — Sending & follow-ups:** αποστολή εγκεκριμένης απάντησης in-thread,
   follow-ups με πλήρες context, feedback loop στα rejects.
 - **Phase 5 — Hardening:** monitoring, rate limits, eval set, prompt tuning, security.

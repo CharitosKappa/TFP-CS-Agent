@@ -27,6 +27,10 @@ const EnvSchema = z.object({
 
   // Database
   DATABASE_URL: z.string().min(1),
+
+  // Review dashboard — identity recorded on reviews/audit log until auth lands (Phase 5).
+  // Read directly from process.env by the review module, so it's optional here.
+  REVIEWER_EMAIL: z.string().email().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
