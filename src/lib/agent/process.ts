@@ -13,6 +13,16 @@ export interface ProcessResult {
   escalated: boolean;
 }
 
+export interface ProcessOptions {
+  /** Reviewer feedback to fold into the prompt when re-drafting a rejection. */
+  reviewerGuidance?: string;
+  /**
+   * Whether to fold the inbound message into the rolling summary. Default true;
+   * set false on a re-draft so the same customer turn isn't counted twice.
+   */
+  updateSummary?: boolean;
+}
+
 /**
  * Produces a review-ready draft for one inbound message:
  *   load thread + rolling summary → classify → Shopify → red-line gate → draft
@@ -20,7 +30,9 @@ export interface ProcessResult {
  */
 export async function processInboundMessage(
   messageId: string,
+  opts: ProcessOptions = {},
 ): Promise<ProcessResult | null> {
+  const { reviewerGuidance, updateSummary = true } = opts;
   const message = await prisma.message.findUnique({
     where: { id: messageId },
     include: {
@@ -46,6 +58,7 @@ export async function processInboundMessage(
     caseSummary: conv.summary ?? "",
     recentMessages,
     incomingMessage: message.bodyText,
+    reviewerGuidance,
     gatherShopify: (c) =>
       gatherShopifyContext({
         orderNumber: c.orderNumber,
@@ -69,15 +82,18 @@ export async function processInboundMessage(
   });
 
   // Fold the customer's message into the rolling summary — keeps follow-ups cheap.
-  const newSummary = await updateCaseSummary(conv.summary ?? "", {
-    direction: "INBOUND",
-    body: message.bodyText,
-  });
+  // Skipped on a re-draft so the same inbound turn isn't summarised twice.
+  const newSummary = updateSummary
+    ? await updateCaseSummary(conv.summary ?? "", {
+        direction: "INBOUND",
+        body: message.bodyText,
+      })
+    : undefined;
 
   await prisma.conversation.update({
     where: { id: conv.id },
     data: {
-      summary: newSummary,
+      ...(newSummary !== undefined ? { summary: newSummary } : {}),
       status: result.redline.escalate ? "ESCALATED" : "AWAITING_REVIEW",
     },
   });

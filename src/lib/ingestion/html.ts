@@ -33,6 +33,21 @@ export function htmlToText(html: string): string {
   return s.trim();
 }
 
+/**
+ * Plain text → minimal, safe HTML for an outgoing email body. Escapes markup,
+ * turns blank lines into paragraphs and single newlines into <br>.
+ */
+export function textToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return escaped
+    .split(/\n{2,}/)
+    .map((para) => `<p>${para.replace(/\n/g, "<br>")}</p>`)
+    .join("\n");
+}
+
 // Markers that typically begin a quoted reply chain.
 const QUOTE_MARKERS: RegExp[] = [
   /-----\s*Original Message\s*-----/i,

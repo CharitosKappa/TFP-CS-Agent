@@ -18,10 +18,13 @@ import DraftReviewPanel from "./DraftReviewPanel";
 export const dynamic = "force-dynamic";
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
+  message_ingested: "Λήψη μηνύματος",
   draft_created: "Δημιουργία draft (agent)",
   draft_approve: "Έγκριση",
   draft_edit: "Επεξεργασία & έγκριση",
   draft_reject: "Απόρριψη",
+  draft_redraft: "Αναδημιουργία draft (με οδηγία)",
+  reply_sent: "Αποστολή απάντησης",
 };
 
 function auditLabel(action: string): string {
@@ -41,9 +44,16 @@ export default async function ReviewDetailPage({
 
   if (!conversation) notFound();
 
-  const pendingDraft = conversation.drafts.find((d) => d.status === "PENDING");
+  // A draft the reviewer can still act on: never reviewed (PENDING) or approved
+  // but not yet sent (a failed/pending send awaiting retry).
+  const actionableDraft = conversation.drafts.find(
+    (d) =>
+      d.status === "PENDING" ||
+      d.status === "APPROVED" ||
+      d.status === "EDITED",
+  );
   const latestDraft = conversation.drafts[0];
-  const draftToShow = pendingDraft ?? latestDraft;
+  const draftToShow = actionableDraft ?? latestDraft;
   const classification = (draftToShow?.classification as Classification | null) ?? null;
 
   return (
@@ -125,10 +135,11 @@ export default async function ReviewDetailPage({
               <div className="reasoning">{draftToShow.reasoning}</div>
             )}
 
-            {pendingDraft ? (
+            {actionableDraft ? (
               <DraftReviewPanel
-                draftId={pendingDraft.id}
-                initialContent={pendingDraft.content}
+                draftId={actionableDraft.id}
+                initialContent={actionableDraft.content}
+                status={actionableDraft.status}
               />
             ) : (
               <>

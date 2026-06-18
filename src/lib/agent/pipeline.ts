@@ -12,6 +12,8 @@ export interface DraftReplyInput {
   incomingMessage: string;
   /** Pre-computed Shopify context (takes precedence over gatherShopify). */
   shopifyContext?: string;
+  /** Reviewer feedback fed back in when regenerating a rejected draft. */
+  reviewerGuidance?: string;
   /**
    * Lazily fetches Shopify context once the message is classified — gets the
    * extracted orderNumber/email so we only query what the message is about.
@@ -52,6 +54,7 @@ export async function draftReplyForInbound(
     recentMessages: input.recentMessages,
     incomingMessage: input.incomingMessage,
     shopifyContext,
+    reviewerGuidance: input.reviewerGuidance,
   };
 
   const { content } = await generateDraft(ctx);

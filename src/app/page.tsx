@@ -60,6 +60,9 @@ export default async function QueuePage() {
               )}
 
               <div className="queue-item-meta">
+                {item.draftStatus !== "PENDING" && (
+                  <span className="badge warn">Προς αποστολή</span>
+                )}
                 {item.isEscalated && (
                   <span className="badge danger">Σε άνθρωπο</span>
                 )}

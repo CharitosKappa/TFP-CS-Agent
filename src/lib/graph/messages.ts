@@ -61,6 +61,49 @@ export async function fetchMessage(id: string): Promise<GraphMessage> {
   return (await res.json()) as GraphMessage;
 }
 
+export interface SentReply {
+  /** Id of the reply message (the Drafts copy that was sent). */
+  graphMessageId: string;
+  conversationId: string;
+  toEmails: string[];
+}
+
+/**
+ * Sends a reply in the original thread, preserving threading (RE: subject,
+ * In-Reply-To/References headers, conversationId): createReply → set our body →
+ * send. Replies go to the sender of the original (the customer).
+ */
+export async function sendReplyInThread(
+  originalGraphMessageId: string,
+  bodyHtml: string,
+): Promise<SentReply> {
+  const id = encodeURIComponent(originalGraphMessageId);
+
+  // 1. Create a reply draft pre-populated with recipients/subject/threading.
+  const created = await graphFetch(`${mailboxPath()}/messages/${id}/createReply`, {
+    method: "POST",
+  });
+  const draft = (await created.json()) as GraphMessage;
+  const draftId = encodeURIComponent(draft.id);
+
+  // 2. Replace the body with our drafted reply.
+  await graphFetch(`${mailboxPath()}/messages/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ body: { contentType: "HTML", content: bodyHtml } }),
+  });
+
+  // 3. Send. Returns 202 Accepted with no body.
+  await graphFetch(`${mailboxPath()}/messages/${draftId}/send`, { method: "POST" });
+
+  return {
+    graphMessageId: draft.id,
+    conversationId: draft.conversationId,
+    toEmails: (draft.toRecipients ?? [])
+      .map((r) => r.emailAddress?.address?.toLowerCase())
+      .filter((a): a is string => Boolean(a)),
+  };
+}
+
 /**
  * Fetches the full thread for a conversation across all folders (inbox + sent),
  * ordered oldest-first. Used for building conversation context (Phase 2).

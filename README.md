@@ -122,9 +122,21 @@ npm run dev          # http://localhost:3000
 - **`/review/[conversationId]`** — όλη η συνομιλία (thread), το draft με το reasoning
   του agent, και ο editor. Ο ελεγκτής κάνει **Έγκριση** / **Αποθήκευση & έγκριση**
   (αν τροποποίησε το κείμενο) / **Απόρριψη**, με προαιρετική σημείωση.
-- Κάθε ενέργεια γράφεται ως `Review` + `AuditLog` σε ένα transaction. Η αποστολή του
-  εγκεκριμένου draft γίνεται στο **Phase 4** — η έγκριση εδώ απλώς το μαρκάρει `APPROVED`.
+- Κάθε ενέργεια γράφεται ως `Review` + `AuditLog` σε ένα transaction.
 - Ταυτότητα ελεγκτή: `REVIEWER_EMAIL` (fallback στο `GRAPH_MAILBOX`). Auth → Phase 5.
+
+### 8. Αποστολή & follow-ups (Phase 4)
+- **Έγκριση & αποστολή** (ένα κλικ): το εγκεκριμένο/επεξεργασμένο draft στέλνεται στον
+  πελάτη **μέσα στο ίδιο thread** (Graph `createReply` → set body → `send`). Απαιτεί
+  Graph permission `Mail.Send`. Αν η αποστολή αποτύχει, το draft μένει `APPROVED`/`EDITED`
+  και παραμένει στην ουρά με κουμπί **«Αποστολή»** για retry.
+- Μετά την αποστολή: καταγράφεται OUTBOUND `Message`, το draft γίνεται `SENT`, η
+  συνομιλία `AWAITING_CUSTOMER`, και η **rolling summary** ενημερώνεται με την απάντηση.
+  Έτσι όταν απαντήσει ξανά ο πελάτης (νέο inbound → `ingest` + `process`), το νέο draft
+  έχει **πλήρες context** (summary + πρόσφατα μηνύματα, μαζί με ό,τι στείλαμε).
+- **Feedback loop στα rejects:** «Απόρριψη & ξαναγράψε» απορρίπτει το draft και παράγει
+  νέο, περνώντας τη σημείωση του ελεγκτή ως **οδηγία διόρθωσης** στο prompt· «Απόρριψη
+  (σε άνθρωπο)» απορρίπτει και βάζει τη συνομιλία σε `ESCALATED`.
 
 ## Roadmap
 - **Phase 0 — Scaffold & infra** ✅ (αυτό το commit): project, Prisma schema,
@@ -138,6 +150,8 @@ npm run dev          # http://localhost:3000
   draft editor (`/review/[id]`), Approve/Edit/Reject μέσω Server Actions, audit
   log ανά συνομιλία. Δεν στέλνει ακόμα — η έγκριση απλώς μαρκάρει το draft
   `APPROVED` (η αποστολή είναι Phase 4). (Pending: auth → Phase 5.)
-- **Phase 4 — Sending & follow-ups:** αποστολή εγκεκριμένης απάντησης in-thread,
-  follow-ups με πλήρες context, feedback loop στα rejects.
+- **Phase 4 — Sending & follow-ups** ✅: αποστολή εγκεκριμένης απάντησης in-thread
+  (Graph `createReply` → set body → `send`), καταγραφή OUTBOUND message + ενημέρωση
+  rolling summary (ώστε τα follow-ups να έχουν πλήρες context αυτόματα), feedback
+  loop στα rejects («ξαναγράψε» με την οδηγία του ελεγκτή ως guidance στο prompt).
 - **Phase 5 — Hardening:** monitoring, rate limits, eval set, prompt tuning, security.

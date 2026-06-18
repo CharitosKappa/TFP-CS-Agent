@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { processInboundMessage } from "@/lib/agent/process";
+import { sendDraftReply } from "./send";
 
 export interface ActionResult {
   ok: boolean;
@@ -21,120 +23,236 @@ function getReviewerEmail(): string {
   );
 }
 
-type Decision =
-  | { action: "APPROVE"; note?: string }
-  | { action: "EDIT"; editedContent: string; note?: string }
-  | { action: "REJECT"; note?: string };
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
-const DRAFT_STATUS: Record<Decision["action"], "APPROVED" | "EDITED" | "REJECTED"> = {
-  APPROVE: "APPROVED",
-  EDIT: "EDITED",
-  REJECT: "REJECTED",
-};
+function revalidate(conversationId: string): void {
+  revalidatePath("/");
+  revalidatePath(`/review/${conversationId}`);
+}
 
 /**
- * Records a human decision on a draft as one atomic step:
- *   guard (draft must be PENDING) → Review → Draft.status (+content on edit)
- *   → Conversation.status → AuditLog.
- * Sending the approved reply is Phase 4 — approving here only marks it ready.
+ * Approves a PENDING draft (or records an EDIT if the reviewer changed the text)
+ * and sends it in-thread. The review is committed first; if the send then fails,
+ * the draft stays APPROVED/EDITED so it can be retried with `sendDraft`.
  */
-async function recordDecision(
+export async function approveAndSendDraft(
   draftId: string,
-  decision: Decision,
+  content: string,
+  note?: string,
 ): Promise<ActionResult> {
   const reviewer = getReviewerEmail();
+  let conversationId: string;
 
   try {
-    const conversationId = await prisma.$transaction(async (tx) => {
+    conversationId = await prisma.$transaction(async (tx) => {
       const draft = await tx.draft.findUnique({ where: { id: draftId } });
       if (!draft) throw new Error("Το draft δεν βρέθηκε.");
       if (draft.status !== "PENDING") {
-        throw new Error(
-          "Το draft έχει ήδη ελεγχθεί από κάποιον — ανανεώστε τη σελίδα.",
-        );
+        throw new Error("Το draft έχει ήδη ελεγχθεί — ανανεώστε τη σελίδα.");
       }
+      const trimmed = content.trim();
+      if (!trimmed) throw new Error("Το κείμενο δεν μπορεί να είναι κενό.");
 
-      const editedContent =
-        decision.action === "EDIT" ? decision.editedContent.trim() : null;
-      if (decision.action === "EDIT" && !editedContent) {
-        throw new Error("Το επεξεργασμένο κείμενο δεν μπορεί να είναι κενό.");
-      }
+      const edited = trimmed !== draft.content.trim();
+      const action = edited ? "EDIT" : "APPROVE";
 
       await tx.review.create({
         data: {
           draftId: draft.id,
           reviewerEmail: reviewer,
-          action: decision.action,
-          editedContent,
-          note: decision.note?.trim() || null,
+          action,
+          editedContent: edited ? trimmed : null,
+          note: note?.trim() || null,
         },
       });
-
       await tx.draft.update({
         where: { id: draft.id },
         data: {
-          status: DRAFT_STATUS[decision.action],
-          // On edit the human's text becomes the canonical reply to send.
-          ...(editedContent ? { content: editedContent } : {}),
+          status: edited ? "EDITED" : "APPROVED",
+          ...(edited ? { content: trimmed } : {}),
         },
       });
 
-      // Rejecting hands the conversation to a human; approve/edit keep it queued
-      // for sending (Phase 4) and so leave the conversation status untouched.
-      if (decision.action === "REJECT") {
-        await tx.conversation.update({
-          where: { id: draft.conversationId },
-          data: { status: "ESCALATED" },
-        });
-      }
-
       const detail: Prisma.InputJsonValue = {
         reviewer,
-        ...(decision.note ? { note: decision.note } : {}),
-        ...(decision.action === "EDIT"
-          ? { originalContent: draft.content }
-          : {}),
+        ...(note?.trim() ? { note: note.trim() } : {}),
+        ...(edited ? { originalContent: draft.content } : {}),
       };
-
       await tx.auditLog.create({
         data: {
           conversationId: draft.conversationId,
           draftId: draft.id,
           actor: reviewer,
-          action: `draft_${decision.action.toLowerCase()}`,
+          action: `draft_${action.toLowerCase()}`,
           detail,
         },
       });
 
       return draft.conversationId;
     });
-
-    revalidatePath("/");
-    revalidatePath(`/review/${conversationId}`);
-    return { ok: true };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errMsg(e) };
   }
+
+  try {
+    await sendDraftReply(draftId, reviewer);
+  } catch (e) {
+    revalidate(conversationId);
+    return {
+      ok: false,
+      error: `Το draft εγκρίθηκε αλλά η αποστολή απέτυχε: ${errMsg(e)} — πατήστε «Αποστολή» για νέα προσπάθεια.`,
+    };
+  }
+
+  revalidate(conversationId);
+  return { ok: true };
 }
 
-export async function approveDraft(
-  draftId: string,
-  note?: string,
-): Promise<ActionResult> {
-  return recordDecision(draftId, { action: "APPROVE", note });
+/** Retries sending a draft already reviewed (APPROVED/EDITED) but not yet SENT. */
+export async function sendDraft(draftId: string): Promise<ActionResult> {
+  const reviewer = getReviewerEmail();
+  const draft = await prisma.draft.findUnique({
+    where: { id: draftId },
+    select: { conversationId: true },
+  });
+  try {
+    await sendDraftReply(draftId, reviewer);
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+  if (draft) revalidate(draft.conversationId);
+  return { ok: true };
 }
 
-export async function editAndApproveDraft(
-  draftId: string,
-  editedContent: string,
-  note?: string,
-): Promise<ActionResult> {
-  return recordDecision(draftId, { action: "EDIT", editedContent, note });
-}
-
+/** Rejects a draft and hands the conversation to a human (ESCALATED). */
 export async function rejectDraft(
   draftId: string,
   note?: string,
 ): Promise<ActionResult> {
-  return recordDecision(draftId, { action: "REJECT", note });
+  const reviewer = getReviewerEmail();
+  try {
+    const conversationId = await prisma.$transaction(async (tx) => {
+      const draft = await tx.draft.findUnique({ where: { id: draftId } });
+      if (!draft) throw new Error("Το draft δεν βρέθηκε.");
+      if (draft.status !== "PENDING") {
+        throw new Error("Το draft έχει ήδη ελεγχθεί — ανανεώστε τη σελίδα.");
+      }
+      await tx.review.create({
+        data: {
+          draftId: draft.id,
+          reviewerEmail: reviewer,
+          action: "REJECT",
+          note: note?.trim() || null,
+        },
+      });
+      await tx.draft.update({
+        where: { id: draft.id },
+        data: { status: "REJECTED" },
+      });
+      await tx.conversation.update({
+        where: { id: draft.conversationId },
+        data: { status: "ESCALATED" },
+      });
+      await tx.auditLog.create({
+        data: {
+          conversationId: draft.conversationId,
+          draftId: draft.id,
+          actor: reviewer,
+          action: "draft_reject",
+          detail: { reviewer, ...(note?.trim() ? { note: note.trim() } : {}) },
+        },
+      });
+      return draft.conversationId;
+    });
+    revalidate(conversationId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+/**
+ * Feedback loop: rejects the current draft and regenerates a fresh one, feeding
+ * the reviewer's note back into the prompt as correction guidance. The new draft
+ * lands as PENDING for another review.
+ */
+export async function rejectAndRedraft(
+  draftId: string,
+  note: string,
+): Promise<ActionResult> {
+  const reviewer = getReviewerEmail();
+  const guidance = note.trim();
+  if (!guidance) {
+    return { ok: false, error: "Γράψτε τι πρέπει να διορθώσει το νέο draft." };
+  }
+
+  let conversationId: string;
+  let triggerMessageId: string;
+  try {
+    const res = await prisma.$transaction(async (tx) => {
+      const draft = await tx.draft.findUnique({ where: { id: draftId } });
+      if (!draft) throw new Error("Το draft δεν βρέθηκε.");
+      if (draft.status !== "PENDING") {
+        throw new Error("Το draft έχει ήδη ελεγχθεί — ανανεώστε τη σελίδα.");
+      }
+      if (!draft.triggerMessageId) {
+        throw new Error("Λείπει το αρχικό μήνυμα — δεν γίνεται re-draft.");
+      }
+      await tx.review.create({
+        data: {
+          draftId: draft.id,
+          reviewerEmail: reviewer,
+          action: "REJECT",
+          note: guidance,
+        },
+      });
+      await tx.draft.update({
+        where: { id: draft.id },
+        data: { status: "REJECTED" },
+      });
+      await tx.auditLog.create({
+        data: {
+          conversationId: draft.conversationId,
+          draftId: draft.id,
+          actor: reviewer,
+          action: "draft_reject",
+          detail: { reviewer, note: guidance, redraft: true },
+        },
+      });
+      return {
+        conversationId: draft.conversationId,
+        triggerMessageId: draft.triggerMessageId,
+      };
+    });
+    conversationId = res.conversationId;
+    triggerMessageId = res.triggerMessageId;
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
+  try {
+    await processInboundMessage(triggerMessageId, {
+      reviewerGuidance: guidance,
+      updateSummary: false,
+    });
+    await prisma.auditLog.create({
+      data: {
+        conversationId,
+        actor: reviewer,
+        action: "draft_redraft",
+        detail: { guidance },
+      },
+    });
+  } catch (e) {
+    revalidate(conversationId);
+    return {
+      ok: false,
+      error: `Το draft απορρίφθηκε αλλά η αναδημιουργία απέτυχε: ${errMsg(e)}`,
+    };
+  }
+
+  revalidate(conversationId);
+  return { ok: true };
 }

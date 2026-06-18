@@ -5,6 +5,7 @@ import type { Classification } from "@/lib/agent/types";
 export interface QueueItem {
   conversationId: string;
   draftId: string;
+  draftStatus: string;
   subject: string | null;
   customerEmail: string;
   customerName: string | null;
@@ -23,14 +24,18 @@ function classificationOf(value: unknown): Classification | null {
   return (value as Classification | null) ?? null;
 }
 
+// Drafts that still need a human's attention: never reviewed (PENDING) or
+// approved but not yet sent (e.g. a send that failed and needs a retry).
+const ACTIONABLE_STATUSES = ["PENDING", "APPROVED", "EDITED"] as const;
+
 /**
- * The review queue: every draft still awaiting a human decision (status PENDING),
- * oldest first (FIFO) so nothing starves. Escalated items are surfaced via flags
- * and sorted to the top.
+ * The review queue: every draft still awaiting a human decision (PENDING) or
+ * approved-but-unsent, oldest first (FIFO) so nothing starves. Escalated items
+ * are surfaced via flags and sorted to the top.
  */
 export async function getReviewQueue(): Promise<QueueItem[]> {
   const drafts = await prisma.draft.findMany({
-    where: { status: "PENDING" },
+    where: { status: { in: [...ACTIONABLE_STATUSES] } },
     orderBy: { createdAt: "asc" },
     include: { conversation: true, triggerMessage: true },
   });
@@ -41,6 +46,7 @@ export async function getReviewQueue(): Promise<QueueItem[]> {
     return {
       conversationId: d.conversationId,
       draftId: d.id,
+      draftStatus: d.status,
       subject: d.conversation.subject,
       customerEmail: d.conversation.customerEmail,
       customerName: d.conversation.customerName,
@@ -63,7 +69,9 @@ export async function getReviewQueue(): Promise<QueueItem[]> {
 }
 
 export async function getQueueCount(): Promise<number> {
-  return prisma.draft.count({ where: { status: "PENDING" } });
+  return prisma.draft.count({
+    where: { status: { in: [...ACTIONABLE_STATUSES] } },
+  });
 }
 
 /** Full conversation with messages, all drafts (+ their reviews), newest draft first. */

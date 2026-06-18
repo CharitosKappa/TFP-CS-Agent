@@ -41,6 +41,8 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
     ctx.shopifyContext && `# Δεδομένα Shopify\n${ctx.shopifyContext}`,
     history && `# Πρόσφατα μηνύματα\n${history}`,
     `# Νέο μήνυμα πελάτη (προς απάντηση)\n${ctx.incomingMessage}`,
+    ctx.reviewerGuidance &&
+      `# Οδηγία ελεγκτή (το προηγούμενο draft απορρίφθηκε — διόρθωσέ το)\n${ctx.reviewerGuidance}`,
     `Σύνταξε την απάντηση (draft) προς τον πελάτη.`,
   ]
     .filter(Boolean)

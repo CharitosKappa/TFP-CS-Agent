@@ -43,6 +43,11 @@ export interface PromptContext {
   recentMessages: { direction: "INBOUND" | "OUTBOUND"; body: string }[];
   incomingMessage: string;
   shopifyContext?: string;
+  /**
+   * Guidance from a human reviewer who rejected the previous draft. Fed back
+   * into the prompt so the regenerated draft corrects the flagged issue.
+   */
+  reviewerGuidance?: string;
 }
 
 export interface DraftResult {
