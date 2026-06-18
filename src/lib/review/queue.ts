@@ -74,6 +74,34 @@ export async function getQueueCount(): Promise<number> {
   });
 }
 
+export interface StuckSend {
+  conversationId: string;
+  draftId: string;
+  customerEmail: string;
+  subject: string | null;
+  since: Date;
+}
+
+/**
+ * Drafts stuck in SENDING: the Graph send was attempted but the outcome wasn't
+ * fully persisted (e.g. a crash/DB error after a successful send). These must be
+ * surfaced for reconciliation — never silently dropped. See scripts/reconcile-sends.ts.
+ */
+export async function getStuckSends(): Promise<StuckSend[]> {
+  const drafts = await prisma.draft.findMany({
+    where: { status: "SENDING" },
+    orderBy: { updatedAt: "asc" },
+    include: { conversation: true },
+  });
+  return drafts.map((d) => ({
+    conversationId: d.conversationId,
+    draftId: d.id,
+    customerEmail: d.conversation.customerEmail,
+    subject: d.conversation.subject,
+    since: d.updatedAt,
+  }));
+}
+
 /** Full conversation with messages, all drafts (+ their reviews), newest draft first. */
 export async function getConversationForReview(conversationId: string) {
   return prisma.conversation.findUnique({

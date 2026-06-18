@@ -27,11 +27,13 @@ const EnvSchema = z.object({
 
   // Database
   DATABASE_URL: z.string().min(1),
-
-  // Review dashboard — identity recorded on reviews/audit log until auth lands (Phase 5).
-  // Read directly from process.env by the review module, so it's optional here.
-  REVIEWER_EMAIL: z.string().email().optional(),
 });
+
+// NOTE: Auth (Entra ID SSO), the machine-route secret and the data-retention
+// window are read directly from process.env (see src/auth.ts, src/lib/auth/*,
+// src/lib/privacy/retention.ts) and documented in .env.example — they are
+// intentionally NOT funnelled through getEnv() so the dashboard/middleware don't
+// require the full external-service config just to render.
 
 export type Env = z.infer<typeof EnvSchema>;
 

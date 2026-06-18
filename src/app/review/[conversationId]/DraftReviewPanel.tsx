@@ -15,28 +15,34 @@ interface Props {
   initialContent: string;
   /** PENDING → full review UI; APPROVED/EDITED → unsent, show retry-send. */
   status: string;
+  /** Red-line draft: sending requires an override reason. */
+  isEscalated: boolean;
 }
 
 export default function DraftReviewPanel({
   draftId,
   initialContent,
   status,
+  isEscalated,
 }: Props) {
   const router = useRouter();
   const [content, setContent] = useState(initialContent);
   const [note, setNote] = useState("");
+  const [override, setOverride] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const edited = content.trim() !== initialContent.trim();
+  const overrideValue = override.trim();
+  const sendBlocked = isEscalated && !overrideValue;
 
-  function run(fn: () => Promise<ActionResult>, stay = false) {
+  function run(fn: () => Promise<ActionResult>) {
     setError(null);
     startTransition(async () => {
       const res = await fn();
       if (!res.ok) {
         setError(res.error ?? "Κάτι πήγε στραβά.");
-        if (stay) router.refresh();
+        router.refresh();
         return;
       }
       router.push("/");
@@ -44,22 +50,43 @@ export default function DraftReviewPanel({
     });
   }
 
+  const overrideField = isEscalated && (
+    <>
+      <label className="field-label" htmlFor="override">
+        Αιτιολόγηση override (υποχρεωτική — κόκκινη γραμμή)
+      </label>
+      <input
+        id="override"
+        className="note"
+        type="text"
+        value={override}
+        onChange={(e) => setOverride(e.target.value)}
+        placeholder="Γιατί είναι ασφαλές να σταλεί αυτή η escalated απάντηση;"
+        disabled={pending}
+      />
+    </>
+  );
+
   // Approved but not yet sent (e.g. a send that failed): offer a retry.
   if (status !== "PENDING") {
     return (
       <div>
-        <div className="escalation-note" style={{ background: "var(--warn-soft)", borderColor: "var(--warn)", color: "var(--warn)" }}>
+        <div
+          className="escalation-note"
+          style={{ background: "var(--warn-soft)", borderColor: "var(--warn)", color: "var(--warn)" }}
+        >
           ⏳ Εγκεκριμένο αλλά δεν έχει σταλεί ακόμη.
         </div>
         <div className="bubble outbound" style={{ maxWidth: "100%" }}>
           {initialContent}
         </div>
+        {overrideField}
         <div className="actions">
           <button
             type="button"
             className="btn primary"
-            onClick={() => run(() => sendDraft(draftId), true)}
-            disabled={pending}
+            onClick={() => run(() => sendDraft(draftId, overrideValue || undefined))}
+            disabled={pending || sendBlocked}
           >
             Αποστολή
           </button>
@@ -95,14 +122,24 @@ export default function DraftReviewPanel({
         disabled={pending}
       />
 
+      {overrideField}
+
       <div className="actions">
         <button
           type="button"
           className="btn primary"
           onClick={() =>
-            run(() => approveAndSendDraft(draftId, content, note.trim() || undefined))
+            run(() =>
+              approveAndSendDraft(
+                draftId,
+                content,
+                note.trim() || undefined,
+                overrideValue || undefined,
+              ),
+            )
           }
-          disabled={pending || content.trim().length === 0}
+          disabled={pending || content.trim().length === 0 || sendBlocked}
+          title={sendBlocked ? "Συμπληρώστε αιτιολόγηση override" : undefined}
         >
           {edited ? "Αποθήκευση & αποστολή" : "Έγκριση & αποστολή"}
         </button>
@@ -112,9 +149,7 @@ export default function DraftReviewPanel({
           onClick={() => run(() => rejectAndRedraft(draftId, note))}
           disabled={pending || note.trim().length === 0}
           title={
-            note.trim().length === 0
-              ? "Γράψτε σημείωση με την οδηγία διόρθωσης"
-              : undefined
+            note.trim().length === 0 ? "Γράψτε σημείωση με την οδηγία διόρθωσης" : undefined
           }
         >
           Απόρριψη & ξαναγράψε

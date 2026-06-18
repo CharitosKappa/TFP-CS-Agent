@@ -1,22 +1,31 @@
 // Sends an approved draft as an in-thread reply and records the outbound turn.
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { sendReplyInThread } from "@/lib/graph/messages";
 import { textToHtml } from "@/lib/ingestion/html";
 import { updateCaseSummary } from "@/lib/agent/summary";
+import { errInfo, log } from "@/lib/observability/logger";
 
 /**
- * Sends a reviewed draft (status APPROVED or EDITED) to the customer in the
- * original thread, then atomically: records the OUTBOUND message → marks the
- * draft SENT → moves the conversation to AWAITING_CUSTOMER → folds the reply
- * into the rolling summary (so follow-ups keep full context) → audit log.
+ * Sends a reviewed draft (APPROVED or EDITED) to the customer in the original
+ * thread, with integrity guarantees:
  *
- * The Graph send happens BEFORE the transaction: if it fails, nothing in the DB
- * changes and the draft stays APPROVED/EDITED for a retry.
+ *  1. Escalation gate — a red-line draft can only be sent with an override reason.
+ *  2. Atomic claim (-> SENDING) before the Graph send, so two reviewers acting at
+ *     once can never send the same draft twice.
+ *  3. The send outcome is persisted in its own transaction BEFORE the rolling
+ *     summary is updated, so a summary failure can never lose the SENT record or
+ *     allow a re-send. The summary update is best-effort.
+ *
+ * Failure handling: a failed send releases the claim (retryable) and is audited;
+ * a send that succeeds but fails to persist is left in SENDING (NOT retryable)
+ * and alerted, so we never double-email a customer.
  */
 export async function sendDraftReply(
   draftId: string,
   actor: string,
+  overrideReason?: string,
 ): Promise<void> {
   const draft = await prisma.draft.findUnique({
     where: { id: draftId },
@@ -31,50 +40,123 @@ export async function sendDraftReply(
     throw new Error("Λείπει το αρχικό μήνυμα — αδύνατη η απάντηση στο thread.");
   }
 
+  const override = overrideReason?.trim() || "";
+  if (draft.isEscalated && !override) {
+    throw new Error(
+      "Το draft είναι escalated (κόκκινη γραμμή) — απαιτείται αιτιολόγηση override για αποστολή.",
+    );
+  }
+
+  const priorStatus = draft.status; // APPROVED | EDITED — restored if the send fails.
+
+  // Atomic claim: only one caller can move APPROVED/EDITED -> SENDING.
+  const claim = await prisma.draft.updateMany({
+    where: { id: draftId, status: { in: ["APPROVED", "EDITED"] } },
+    data: { status: "SENDING" },
+  });
+  if (claim.count === 0) {
+    throw new Error("Το draft στέλνεται ήδη ή έχει σταλεί — ανανεώστε τη σελίδα.");
+  }
+
   const mailbox = getEnv().GRAPH_MAILBOX.toLowerCase();
   const bodyHtml = textToHtml(draft.content);
 
-  // 1. Send via Graph (outside the transaction — network call).
-  const sent = await sendReplyInThread(draft.triggerMessage.graphMessageId, bodyHtml);
+  // 1. Send via Graph.
+  let sent;
+  try {
+    sent = await sendReplyInThread(draft.triggerMessage.graphMessageId, bodyHtml);
+  } catch (e) {
+    await prisma.draft
+      .update({ where: { id: draftId }, data: { status: priorStatus } })
+      .catch(() => {});
+    await prisma.auditLog
+      .create({
+        data: {
+          conversationId: draft.conversationId,
+          draftId,
+          actor,
+          action: "reply_send_failed",
+          detail: { error: errInfo(e).message },
+        },
+      })
+      .catch(() => {});
+    log.error("reply_send_failed", { draftId, ...errInfo(e) });
+    throw new Error("Η αποστολή απέτυχε — δοκιμάστε ξανά.");
+  }
 
-  // 2. Fold our reply into the rolling summary (Anthropic call, also pre-tx).
-  const newSummary = await updateCaseSummary(draft.conversation.summary ?? "", {
-    direction: "OUTBOUND",
-    body: draft.content,
-  });
+  // 2. Persist the outcome (independent of the summary).
+  const detail: Prisma.InputJsonValue = {
+    graphMessageId: sent.graphMessageId,
+    to: sent.toEmails,
+    ...(override ? { escalationOverride: override } : {}),
+  };
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.message.create({
+        data: {
+          conversationId: draft.conversationId,
+          graphMessageId: sent.graphMessageId,
+          direction: "OUTBOUND",
+          fromEmail: mailbox,
+          toEmails: sent.toEmails.length
+            ? sent.toEmails
+            : [draft.conversation.customerEmail],
+          bodyText: draft.content,
+          receivedAt: new Date(),
+        },
+      });
+      await tx.draft.update({ where: { id: draftId }, data: { status: "SENT" } });
+      await tx.conversation.update({
+        where: { id: draft.conversationId },
+        data: { status: "AWAITING_CUSTOMER" },
+      });
+      await tx.auditLog.create({
+        data: {
+          conversationId: draft.conversationId,
+          draftId,
+          actor,
+          action: "reply_sent",
+          detail,
+        },
+      });
+    });
+  } catch (e) {
+    // Email went out but recording failed. Leave the draft in SENDING (not
+    // sendable) so it can never be re-sent; alert for manual reconciliation.
+    log.error("reply_sent_persist_failed", {
+      draftId,
+      graphMessageId: sent.graphMessageId,
+      ...errInfo(e),
+    });
+    await prisma.auditLog
+      .create({
+        data: {
+          conversationId: draft.conversationId,
+          draftId,
+          actor,
+          action: "reply_sent_persist_failed",
+          detail: { graphMessageId: sent.graphMessageId },
+        },
+      })
+      .catch(() => {});
+    throw new Error(
+      "Το email στάλθηκε αλλά απέτυχε η καταγραφή — χρειάζεται έλεγχος (δεν θα ξανασταλεί αυτόματα).",
+    );
+  }
 
-  // 3. Persist everything atomically.
-  await prisma.$transaction(async (tx) => {
-    await tx.message.create({
-      data: {
-        conversationId: draft.conversationId,
-        graphMessageId: sent.graphMessageId,
-        direction: "OUTBOUND",
-        fromEmail: mailbox,
-        toEmails: sent.toEmails.length
-          ? sent.toEmails
-          : [draft.conversation.customerEmail],
-        bodyText: draft.content,
-        bodyHtml,
-        receivedAt: new Date(),
-      },
+  // 3. Best-effort rolling-summary update (must not affect the recorded send).
+  try {
+    const newSummary = await updateCaseSummary(draft.conversation.summary ?? "", {
+      direction: "OUTBOUND",
+      body: draft.content,
     });
-    await tx.draft.update({
-      where: { id: draft.id },
-      data: { status: "SENT" },
-    });
-    await tx.conversation.update({
+    await prisma.conversation.update({
       where: { id: draft.conversationId },
-      data: { status: "AWAITING_CUSTOMER", summary: newSummary },
+      data: { summary: newSummary },
     });
-    await tx.auditLog.create({
-      data: {
-        conversationId: draft.conversationId,
-        draftId: draft.id,
-        actor,
-        action: "reply_sent",
-        detail: { graphMessageId: sent.graphMessageId, to: sent.toEmails },
-      },
-    });
-  });
+  } catch (e) {
+    log.warn("summary_update_failed_after_send", { draftId, ...errInfo(e) });
+  }
+
+  log.info("reply_sent", { draftId, conversationId: draft.conversationId, escalated: draft.isEscalated });
 }

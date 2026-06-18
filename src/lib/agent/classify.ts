@@ -1,7 +1,21 @@
 import { z } from "zod";
 import { anthropic } from "../anthropic/client";
 import { getEnv } from "../env";
+import { errInfo, log } from "../observability/logger";
 import { INTENTS, type Classification } from "./types";
+
+/**
+ * Safe fallback when the triage model returns unparseable/invalid output.
+ * confidence 0 is below the escalation threshold, so the draft is routed to a
+ * human instead of crashing the whole pipeline.
+ */
+const FALLBACK_CLASSIFICATION: Classification = {
+  intent: "other",
+  confidence: 0,
+  language: "el",
+  sentiment: "neutral",
+  summary: "(αυτόματη ταξινόμηση απέτυχε — χειρισμός από άνθρωπο)",
+};
 
 const ClassificationSchema = z.object({
   intent: z.enum(INTENTS),
@@ -47,6 +61,13 @@ export async function classifyEmail(text: string): Promise<Classification> {
   const raw = res.content
     .map((b) => (b.type === "text" ? b.text : ""))
     .join("");
-  const parsed = ClassificationSchema.parse(JSON.parse(extractJson(raw)));
-  return parsed as Classification;
+
+  // Never let a malformed model response crash drafting — fall back to a
+  // low-confidence "other" so the red-line gate escalates it to a human.
+  try {
+    return ClassificationSchema.parse(JSON.parse(extractJson(raw))) as Classification;
+  } catch (e) {
+    log.warn("classify_parse_failed", errInfo(e));
+    return { ...FALLBACK_CLASSIFICATION };
+  }
 }

@@ -13,13 +13,17 @@
     "health": "tsx scripts/health-check.ts",
     "ingest": "tsx scripts/ingest.ts",
     "subscribe": "tsx scripts/subscribe.ts",
-    "process": "tsx scripts/process.ts"
+    "process": "tsx scripts/process.ts",
+    "retention": "tsx scripts/retention.ts",
+    "gdpr": "tsx scripts/gdpr.ts",
+    "reconcile": "tsx scripts/reconcile-sends.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
     "@azure/msal-node": "^5.2.5",
     "@prisma/client": "^6.2.0",
     "next": "^15.1.0",
+    "next-auth": "^5.0.0-beta.31",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^3.24.0"

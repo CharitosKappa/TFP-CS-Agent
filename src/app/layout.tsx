@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { auth } from "@/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -7,11 +8,14 @@ export const metadata: Metadata = {
   description: "Customer Service AI agent — review dashboard",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await auth();
+  const email = session?.user?.email ?? null;
+
   return (
     <html lang="el">
       <body>
@@ -21,7 +25,14 @@ export default function RootLayout({
           </Link>
           <nav className="topnav">
             <Link href="/">Ουρά ελέγχου</Link>
-            <a href="/api/health">Health</a>
+            {email ? (
+              <>
+                <span className="muted">{email}</span>
+                <a href="/api/auth/signout">Αποσύνδεση</a>
+              </>
+            ) : (
+              <a href="/api/auth/signin">Σύνδεση</a>
+            )}
           </nav>
         </header>
         {children}

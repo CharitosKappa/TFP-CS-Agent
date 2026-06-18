@@ -27,6 +27,8 @@ enum DraftStatus {
   PENDING
   APPROVED
   EDITED
+  // Transient claim taken before the Graph send so two reviewers can't double-send.
+  SENDING
   REJECTED
   SENT
 }
@@ -55,8 +57,9 @@ model Conversation {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  messages Message[]
-  drafts   Draft[]
+  messages  Message[]
+  drafts    Draft[]
+  auditLogs AuditLog[]
 
   @@index([customerEmail])
   @@index([status])
@@ -69,8 +72,9 @@ model Message {
   direction      MessageDirection
   fromEmail      String
   toEmails       String[]
+  // Plain text only. The raw HTML body is intentionally NOT stored (data
+  // minimisation — see PRIVACY.md); bodyText is what the agent + reviewers use.
   bodyText       String
-  bodyHtml       String?
   receivedAt     DateTime
   createdAt      DateTime         @default(now())
 
@@ -124,6 +128,9 @@ model AuditLog {
   action         String
   detail         Json?
   createdAt      DateTime @default(now())
+
+  // Cascade so erasing a conversation also erases its audit trail (GDPR Art.17).
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
 }

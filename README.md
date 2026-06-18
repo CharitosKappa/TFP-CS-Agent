@@ -123,7 +123,7 @@ npm run dev          # http://localhost:3000
   του agent, και ο editor. Ο ελεγκτής κάνει **Έγκριση** / **Αποθήκευση & έγκριση**
   (αν τροποποίησε το κείμενο) / **Απόρριψη**, με προαιρετική σημείωση.
 - Κάθε ενέργεια γράφεται ως `Review` + `AuditLog` σε ένα transaction.
-- Ταυτότητα ελεγκτή: `REVIEWER_EMAIL` (fallback στο `GRAPH_MAILBOX`). Auth → Phase 5.
+- Ταυτότητα ελεγκτή: από το **Entra ID session** (Phase 5) — βλ. §9.
 
 ### 8. Αποστολή & follow-ups (Phase 4)
 - **Έγκριση & αποστολή** (ένα κλικ): το εγκεκριμένο/επεξεργασμένο draft στέλνεται στον
@@ -137,6 +137,41 @@ npm run dev          # http://localhost:3000
 - **Feedback loop στα rejects:** «Απόρριψη & ξαναγράψε» απορρίπτει το draft και παράγει
   νέο, περνώντας τη σημείωση του ελεγκτή ως **οδηγία διόρθωσης** στο prompt· «Απόρριψη
   (σε άνθρωπο)» απορρίπτει και βάζει τη συνομιλία σε `ESCALATED`.
+
+### 9. Hardening (Phase 5)
+**Auth (Entra ID SSO):** το dashboard + τα Server Actions προστατεύονται από
+`src/middleware.ts` + `requireReviewer()`. Συμπληρώστε `AUTH_SECRET`,
+`AUTH_MICROSOFT_ENTRA_ID_{ID,SECRET,ISSUER}` (μπορεί ίδιο tenant με το Graph),
+προαιρετικά `ALLOWED_REVIEWERS`. Redirect URI στο Azure:
+`<AUTH_URL>/api/auth/callback/microsoft-entra-id`. Η ταυτότητα του ελεγκτή
+καταγράφεται από το session (όχι env).
+
+**Machine routes:** `POST /api/ingest`, `POST /api/process` και το αναλυτικό
+`GET /api/health` απαιτούν `INTERNAL_API_SECRET` (`Authorization: Bearer …` ή
+`x-internal-secret`). Χωρίς το secret, το ingest/process επιστρέφουν 401 και το
+health δίνει μόνο liveness. Ο webhook απαιτεί `GRAPH_WEBHOOK_CLIENT_STATE`
+(fail-closed, timing-safe σύγκριση).
+
+**Escalated send:** τα red-line drafts στέλνονται μόνο με υποχρεωτική
+**αιτιολόγηση override** (καταγράφεται στο audit log).
+
+**Send integrity:** atomic claim (`→ SENDING`) αποτρέπει διπλή αποστολή· οι
+non-idempotent Graph κλήσεις (createReply/PATCH/send) **δεν** κάνουν retry. Αν μια
+αποστολή στείλει αλλά αποτύχει η καταγραφή, το draft μένει `SENDING` (ορατό στην
+ουρά ως «χρειάζεται έλεγχος») και ανακτάται με `npm run reconcile` (back-fill ή
+επαναφορά για retry).
+
+**Resilience/observability:** retries+timeouts σε Graph/Shopify/Anthropic,
+fallback-σε-escalation αν αποτύχει η ταξινόμηση, structured JSON logs (PII-safe),
+queue-depth metric στο `/api/health`.
+
+**GDPR:** βλ. [PRIVACY.md](PRIVACY.md) — retention purge (`npm run retention`),
+export/erase (`npm run gdpr export|erase <email>`), drop του `bodyHtml`, cascade
+στο `AuditLog`.
+
+> ⚠️ **Migration:** το schema άλλαξε (νέο `SENDING` status, αφαίρεση `bodyHtml`,
+> `AuditLog → Conversation` cascade). Τρέξτε `npm run prisma:migrate` (ή
+> `prisma db push`) πριν τη χρήση.
 
 ## Roadmap
 - **Phase 0 — Scaffold & infra** ✅ (αυτό το commit): project, Prisma schema,
@@ -154,4 +189,10 @@ npm run dev          # http://localhost:3000
   (Graph `createReply` → set body → `send`), καταγραφή OUTBOUND message + ενημέρωση
   rolling summary (ώστε τα follow-ups να έχουν πλήρες context αυτόματα), feedback
   loop στα rejects («ξαναγράψε» με την οδηγία του ελεγκτή ως guidance στο prompt).
-- **Phase 5 — Hardening:** monitoring, rate limits, eval set, prompt tuning, security.
+- **Phase 5 — Hardening** ✅: Entra ID SSO + route/action auth, machine-route
+  secret, escalation override gate, send-integrity (atomic claim, persist-before-
+  summary, audit on failure), retries/timeouts στα external APIs, classify
+  fallback, structured logging + queue-depth metric, GDPR retention/erasure/export
+  + data minimization. (Βλ. §9 + [PRIVACY.md](PRIVACY.md).)
+  Εκκρεμότητες για επόμενο γύρο: eval/regression set για classification & red-line
+  recall, prompt tuning, async webhook processing, role separation reviewers.

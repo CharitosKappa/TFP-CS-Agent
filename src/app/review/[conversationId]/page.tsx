@@ -25,6 +25,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   draft_reject: "Απόρριψη",
   draft_redraft: "Αναδημιουργία draft (με οδηγία)",
   reply_sent: "Αποστολή απάντησης",
+  reply_send_failed: "Αποτυχία αποστολής",
+  reply_sent_persist_failed: "Αποστολή OK αλλά αποτυχία καταγραφής",
+  reply_sent_reconciled: "Συμφιλίωση αποστολής",
 };
 
 function auditLabel(action: string): string {
@@ -131,6 +134,15 @@ export default async function ReviewDetailPage({
               </div>
             )}
 
+            {draftToShow.status === "SENDING" && (
+              <div className="escalation-note">
+                ⚠ Αυτό το draft έμεινε σε κατάσταση «αποστολή»: το email μπορεί να
+                στάλθηκε αλλά δεν καταγράφηκε πλήρως. <strong>Μην ξαναστείλετε.</strong>{" "}
+                Τρέξτε <code>npm run reconcile</code> για αυτόματη συμφιλίωση (back-fill
+                ή επαναφορά για retry).
+              </div>
+            )}
+
             {draftToShow.reasoning && (
               <div className="reasoning">{draftToShow.reasoning}</div>
             )}
@@ -140,6 +152,7 @@ export default async function ReviewDetailPage({
                 draftId={actionableDraft.id}
                 initialContent={actionableDraft.content}
                 status={actionableDraft.status}
+                isEscalated={actionableDraft.isEscalated}
               />
             ) : (
               <>

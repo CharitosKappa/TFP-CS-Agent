@@ -4,23 +4,13 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { processInboundMessage } from "@/lib/agent/process";
+import { requireReviewer } from "@/lib/auth/session";
+import { errInfo, log } from "@/lib/observability/logger";
 import { sendDraftReply } from "./send";
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
-}
-
-/**
- * Who is recording the review. No auth layer yet (that lands in Phase 5), so the
- * reviewer identity comes from REVIEWER_EMAIL, falling back to the shared mailbox.
- */
-function getReviewerEmail(): string {
-  return (
-    process.env.REVIEWER_EMAIL ||
-    process.env.GRAPH_MAILBOX ||
-    "reviewer@thefashionproject.gr"
-  );
 }
 
 function errMsg(e: unknown): string {
@@ -36,13 +26,22 @@ function revalidate(conversationId: string): void {
  * Approves a PENDING draft (or records an EDIT if the reviewer changed the text)
  * and sends it in-thread. The review is committed first; if the send then fails,
  * the draft stays APPROVED/EDITED so it can be retried with `sendDraft`.
+ * Escalated (red-line) drafts require a non-empty `overrideReason`.
  */
 export async function approveAndSendDraft(
   draftId: string,
   content: string,
   note?: string,
+  overrideReason?: string,
 ): Promise<ActionResult> {
-  const reviewer = getReviewerEmail();
+  let reviewer: string;
+  try {
+    reviewer = await requireReviewer();
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
+  const override = overrideReason?.trim() || "";
   let conversationId: string;
 
   try {
@@ -54,9 +53,17 @@ export async function approveAndSendDraft(
       }
       const trimmed = content.trim();
       if (!trimmed) throw new Error("Το κείμενο δεν μπορεί να είναι κενό.");
+      if (draft.isEscalated && !override) {
+        throw new Error(
+          "Το draft είναι escalated (κόκκινη γραμμή) — γράψτε αιτιολόγηση override για να σταλεί.",
+        );
+      }
 
       const edited = trimmed !== draft.content.trim();
       const action = edited ? "EDIT" : "APPROVE";
+      const noteParts = [note?.trim(), override && `override: ${override}`].filter(
+        Boolean,
+      );
 
       await tx.review.create({
         data: {
@@ -64,7 +71,7 @@ export async function approveAndSendDraft(
           reviewerEmail: reviewer,
           action,
           editedContent: edited ? trimmed : null,
-          note: note?.trim() || null,
+          note: noteParts.join(" · ") || null,
         },
       });
       await tx.draft.update({
@@ -78,6 +85,7 @@ export async function approveAndSendDraft(
       const detail: Prisma.InputJsonValue = {
         reviewer,
         ...(note?.trim() ? { note: note.trim() } : {}),
+        ...(override ? { escalationOverride: override } : {}),
         ...(edited ? { originalContent: draft.content } : {}),
       };
       await tx.auditLog.create({
@@ -97,7 +105,7 @@ export async function approveAndSendDraft(
   }
 
   try {
-    await sendDraftReply(draftId, reviewer);
+    await sendDraftReply(draftId, reviewer, override);
   } catch (e) {
     revalidate(conversationId);
     return {
@@ -111,15 +119,25 @@ export async function approveAndSendDraft(
 }
 
 /** Retries sending a draft already reviewed (APPROVED/EDITED) but not yet SENT. */
-export async function sendDraft(draftId: string): Promise<ActionResult> {
-  const reviewer = getReviewerEmail();
+export async function sendDraft(
+  draftId: string,
+  overrideReason?: string,
+): Promise<ActionResult> {
+  let reviewer: string;
+  try {
+    reviewer = await requireReviewer();
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
   const draft = await prisma.draft.findUnique({
     where: { id: draftId },
     select: { conversationId: true },
   });
   try {
-    await sendDraftReply(draftId, reviewer);
+    await sendDraftReply(draftId, reviewer, overrideReason);
   } catch (e) {
+    if (draft) revalidate(draft.conversationId);
     return { ok: false, error: errMsg(e) };
   }
   if (draft) revalidate(draft.conversationId);
@@ -131,7 +149,13 @@ export async function rejectDraft(
   draftId: string,
   note?: string,
 ): Promise<ActionResult> {
-  const reviewer = getReviewerEmail();
+  let reviewer: string;
+  try {
+    reviewer = await requireReviewer();
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
   try {
     const conversationId = await prisma.$transaction(async (tx) => {
       const draft = await tx.draft.findUnique({ where: { id: draftId } });
@@ -182,7 +206,13 @@ export async function rejectAndRedraft(
   draftId: string,
   note: string,
 ): Promise<ActionResult> {
-  const reviewer = getReviewerEmail();
+  let reviewer: string;
+  try {
+    reviewer = await requireReviewer();
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
   const guidance = note.trim();
   if (!guidance) {
     return { ok: false, error: "Γράψτε τι πρέπει να διορθώσει το νέο draft." };
@@ -246,6 +276,7 @@ export async function rejectAndRedraft(
       },
     });
   } catch (e) {
+    log.error("redraft_failed", { conversationId, ...errInfo(e) });
     revalidate(conversationId);
     return {
       ok: false,

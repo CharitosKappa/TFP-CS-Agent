@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { loadPolicies } from "../knowledge/policies";
+import { errInfo, log } from "../observability/logger";
 import { gatherShopifyContext } from "../shopify/context";
 import { draftReplyForInbound } from "./pipeline";
 import { updateCaseSummary } from "./summary";
@@ -68,21 +69,9 @@ export async function processInboundMessage(
       }),
   });
 
-  const draft = await prisma.draft.create({
-    data: {
-      conversationId: conv.id,
-      triggerMessageId: message.id,
-      content: result.content,
-      reasoning: result.reasoning,
-      classification: result.classification as unknown as Prisma.InputJsonValue,
-      isEscalated: result.redline.escalate,
-      escalationReasons: result.redline.reasons,
-      status: "PENDING",
-    },
-  });
-
   // Fold the customer's message into the rolling summary — keeps follow-ups cheap.
   // Skipped on a re-draft so the same inbound turn isn't summarised twice.
+  // Done BEFORE the write so the external call can't strand a half-persisted state.
   const newSummary = updateSummary
     ? await updateCaseSummary(conv.summary ?? "", {
         direction: "INBOUND",
@@ -90,26 +79,48 @@ export async function processInboundMessage(
       })
     : undefined;
 
-  await prisma.conversation.update({
-    where: { id: conv.id },
-    data: {
-      ...(newSummary !== undefined ? { summary: newSummary } : {}),
-      status: result.redline.escalate ? "ESCALATED" : "AWAITING_REVIEW",
-    },
+  // Persist draft + conversation status/summary + audit atomically.
+  const draft = await prisma.$transaction(async (tx) => {
+    const created = await tx.draft.create({
+      data: {
+        conversationId: conv.id,
+        triggerMessageId: message.id,
+        content: result.content,
+        reasoning: result.reasoning,
+        classification: result.classification as unknown as Prisma.InputJsonValue,
+        isEscalated: result.redline.escalate,
+        escalationReasons: result.redline.reasons,
+        status: "PENDING",
+      },
+    });
+    await tx.conversation.update({
+      where: { id: conv.id },
+      data: {
+        ...(newSummary !== undefined ? { summary: newSummary } : {}),
+        status: result.redline.escalate ? "ESCALATED" : "AWAITING_REVIEW",
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        conversationId: conv.id,
+        draftId: created.id,
+        actor: "agent",
+        action: "draft_created",
+        detail: {
+          escalated: result.redline.escalate,
+          reasons: result.redline.reasons,
+          intent: result.classification.intent,
+        },
+      },
+    });
+    return created;
   });
 
-  await prisma.auditLog.create({
-    data: {
-      conversationId: conv.id,
-      draftId: draft.id,
-      actor: "agent",
-      action: "draft_created",
-      detail: {
-        escalated: result.redline.escalate,
-        reasons: result.redline.reasons,
-        intent: result.classification.intent,
-      },
-    },
+  log.info("draft_created", {
+    draftId: draft.id,
+    conversationId: conv.id,
+    escalated: result.redline.escalate,
+    intent: result.classification.intent,
   });
 
   return { draftId: draft.id, escalated: result.redline.escalate };
@@ -136,15 +147,18 @@ export async function processNewInboundMessages(
   });
 
   const results: ProcessResult[] = [];
+  let failed = 0;
   for (const m of messages) {
     try {
       const r = await processInboundMessage(m.id);
       if (r) results.push(r);
     } catch (e) {
-      console.error("draft failed for message", m.id, e);
+      failed++;
+      log.error("draft_failed", { messageId: m.id, ...errInfo(e) });
     }
   }
 
+  if (failed > 0) log.warn("draft_batch_partial_failure", { failed, ok: results.length });
   return {
     processed: results.length,
     escalated: results.filter((r) => r.escalated).length,

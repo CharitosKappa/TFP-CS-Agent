@@ -62,7 +62,12 @@ export async function fetchMessage(id: string): Promise<GraphMessage> {
 }
 
 export interface SentReply {
-  /** Id of the reply message (the Drafts copy that was sent). */
+  /**
+   * Id of the reply message (the Drafts copy that was sent). It differs from the
+   * eventual Sent Items id; this is fine because ingestion only reads the INBOX
+   * (sync.ts), so a self-sent reply is never re-ingested. If Sent Items ingestion
+   * is ever added, dedupe OUTBOUND on internetMessageId instead of this id.
+   */
   graphMessageId: string;
   conversationId: string;
   toEmails: string[];
@@ -78,22 +83,31 @@ export async function sendReplyInThread(
   bodyHtml: string,
 ): Promise<SentReply> {
   const id = encodeURIComponent(originalGraphMessageId);
+  // These three calls are non-idempotent — never auto-retry them, or a
+  // lost-response timeout/5xx could double-send the email or orphan reply drafts.
+  const noRetry = { retries: 0 } as const;
 
   // 1. Create a reply draft pre-populated with recipients/subject/threading.
-  const created = await graphFetch(`${mailboxPath()}/messages/${id}/createReply`, {
-    method: "POST",
-  });
+  const created = await graphFetch(
+    `${mailboxPath()}/messages/${id}/createReply`,
+    { method: "POST" },
+    noRetry,
+  );
   const draft = (await created.json()) as GraphMessage;
   const draftId = encodeURIComponent(draft.id);
 
   // 2. Replace the body with our drafted reply.
-  await graphFetch(`${mailboxPath()}/messages/${draftId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ body: { contentType: "HTML", content: bodyHtml } }),
-  });
+  await graphFetch(
+    `${mailboxPath()}/messages/${draftId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ body: { contentType: "HTML", content: bodyHtml } }),
+    },
+    noRetry,
+  );
 
   // 3. Send. Returns 202 Accepted with no body.
-  await graphFetch(`${mailboxPath()}/messages/${draftId}/send`, { method: "POST" });
+  await graphFetch(`${mailboxPath()}/messages/${draftId}/send`, { method: "POST" }, noRetry);
 
   return {
     graphMessageId: draft.id,

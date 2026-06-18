@@ -66,7 +66,6 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
     return { conversationCreated: false, messageCreated: false, conversationId: conv.id };
   }
 
-  const isHtml = (msg.body?.contentType ?? "").toLowerCase() === "html";
   await prisma.message.create({
     data: {
       conversationId: conv.id,
@@ -75,7 +74,6 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
       fromEmail: from.email,
       toEmails: toList.map((t) => t.email).filter(Boolean),
       bodyText: toBodyText(msg),
-      bodyHtml: isHtml ? msg.body?.content ?? null : null,
       receivedAt: new Date(msg.receivedDateTime),
     },
   });

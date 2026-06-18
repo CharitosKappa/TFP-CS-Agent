@@ -1,5 +1,7 @@
 import { ConfidentialClientApplication } from "@azure/msal-node";
 import { getEnv } from "../env";
+import { resilientFetch, type ResilientOptions } from "../http/resilient";
+import { log } from "../observability/logger";
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
@@ -30,22 +32,56 @@ export async function getGraphToken(): Promise<string> {
   return result.accessToken;
 }
 
-/** Thin authenticated fetch wrapper for the Graph REST API. */
+/** Strips the mailbox/user segment so paths can be logged without PII. */
+function redactPath(path: string): string {
+  return path.replace(/\/users\/[^/?]+/i, "/users/***");
+}
+
+/** Extracts a non-PII error code from a Graph error body, if present. */
+function safeErrorCode(body: string): string | undefined {
+  try {
+    const j = JSON.parse(body) as { error?: { code?: string }; code?: string };
+    return j?.error?.code ?? j?.code;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Authenticated, resilient fetch wrapper for the Graph REST API. Retries 429/5xx
+ * with backoff (honoring Retry-After) and times out hung requests. On failure it
+ * logs status + a redacted path + the upstream error CODE (never the raw body, which
+ * can contain PII) and throws a concise error so raw responses never reach the UI.
+ *
+ * IMPORTANT: pass `{ retries: 0 }` for non-idempotent mutations (e.g. sending an
+ * email) so a lost-response timeout/5xx can never silently re-send.
+ */
 export async function graphFetch(
   path: string,
   init: RequestInit = {},
+  opts: ResilientOptions = {},
 ): Promise<Response> {
   const token = await getGraphToken();
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
+  const res = await resilientFetch(
+    `${GRAPH_BASE}${path}`,
+    {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
     },
-  });
+    opts,
+  );
   if (!res.ok) {
-    throw new Error(`Graph ${res.status} ${path}: ${await res.text()}`);
+    const body = await res.text().catch(() => "");
+    log.error("graph_request_failed", {
+      status: res.status,
+      path: redactPath(path),
+      code: safeErrorCode(body),
+    });
+    throw new Error(`Microsoft Graph request failed (${res.status})`);
   }
   return res;
 }

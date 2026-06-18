@@ -48,17 +48,30 @@ export const RED_LINE_RULES: RedLineRule[] = [
   {
     key: "high_emotion",
     description: "Έντονα αρνητικό / απειλητικό ύφος",
-    keywords: ["απαράδεκτο", "ντροπή", "καταγγελλω", "θα σας καταστρέψω", "scam", "απατεών"],
+    // Note: "καταγγελ*" is already covered by the `legal` rule, so it's omitted here.
+    keywords: ["απαράδεκτο", "ντροπή", "θα σας καταστρέψω", "scam", "απατεών"],
   },
 ];
 
 /** Minimum classification confidence below which we escalate to a human. */
 export const ESCALATION_CONFIDENCE_THRESHOLD = 0.6;
 
+/**
+ * Lowercase + strip diacritics (Greek tonos/dialytika) so matching is
+ * accent-insensitive (e.g. "απατεών" === "απατεων"). Keyword matching is the v1
+ * detector and is intentionally broad; the human reviewer is the backstop.
+ */
+function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, ""); // strip combining diacritics
+}
+
 export function detectRedLines(text: string): RedLineVerdict {
-  const lower = text.toLowerCase();
+  const haystack = normalize(text);
   const reasons = RED_LINE_RULES.filter((rule) =>
-    rule.keywords.some((kw) => lower.includes(kw)),
+    rule.keywords.some((kw) => haystack.includes(normalize(kw))),
   ).map((rule) => rule.key);
   return { escalate: reasons.length > 0, reasons };
 }

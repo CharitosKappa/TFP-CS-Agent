@@ -25,6 +25,7 @@ export const DRAFT_STATUS_LABELS: Record<string, string> = {
   PENDING: "Εκκρεμεί",
   APPROVED: "Εγκρίθηκε",
   EDITED: "Επεξεργάστηκε",
+  SENDING: "Σε αποστολή — χρειάζεται έλεγχος",
   REJECTED: "Απορρίφθηκε",
   SENT: "Στάλθηκε",
 };
