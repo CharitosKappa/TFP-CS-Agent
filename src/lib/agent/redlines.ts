@@ -51,6 +51,37 @@ export const RED_LINE_RULES: RedLineRule[] = [
     // Note: "καταγγελ*" is already covered by the `legal` rule, so it's omitted here.
     keywords: ["απαράδεκτο", "ντροπή", "θα σας καταστρέψω", "scam", "απατεών"],
   },
+  {
+    key: "compensation",
+    description: "Αίτημα αποζημίωσης",
+    keywords: ["αποζημ", "compensation", "compensate", "ηθική βλάβη", "διαφυγόντα"],
+  },
+  {
+    key: "health_safety",
+    description: "Ζήτημα υγείας / αλλεργίας / τραυματισμού",
+    keywords: ["αλλεργ", "allergy", "allergic", "παρενέργ", "ερεθισμ", "rash", "τραυματ", "injur", "side effect"],
+  },
+  {
+    // Quality *complaints*, not routine defective-item returns (those go through
+    // the normal RMA flow). Keyword matching here is intentionally narrow —
+    // complaint-flavoured phrasings only — so it doesn't over-escalate every
+    // defective-return question; the human reviewer remains the backstop.
+    key: "quality_complaint",
+    description: "Παράπονο ποιότητας προϊόντος",
+    keywords: [
+      "κακή ποιότητ",
+      "κακής ποιότητ",
+      "χαμηλή ποιότητ",
+      "χαμηλής ποιότητ",
+      "απαράδεκτη ποιότητ",
+      "άθλια ποιότητ",
+      "poor quality",
+      "bad quality",
+      "low quality",
+      "terrible quality",
+      "cheap quality",
+    ],
+  },
 ];
 
 /** Minimum classification confidence below which we escalate to a human. */
