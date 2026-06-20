@@ -20,14 +20,25 @@ function allowedReviewers(): string[] {
     .filter(Boolean);
 }
 
+// Only register the Entra provider when it's actually configured — otherwise
+// Auth.js throws InvalidEndpoints (e.g. in local dev without Entra credentials).
+const entraConfigured =
+  !!process.env.AUTH_MICROSOFT_ENTRA_ID_ID &&
+  !!process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [
-    MicrosoftEntraID({
-      clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
-      clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
-      issuer: process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER,
-    }),
-  ],
+  // Self-hosted (non-Vercel): trust the host only when explicitly enabled
+  // (AUTH_TRUST_HOST=true) or behind a proxy that sets a verified AUTH_URL.
+  trustHost: process.env.AUTH_TRUST_HOST === "true",
+  providers: entraConfigured
+    ? [
+        MicrosoftEntraID({
+          clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
+          clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
+          issuer: process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER,
+        }),
+      ]
+    : [],
   callbacks: {
     // Used by the middleware to gate protected routes.
     authorized({ auth: session }) {
