@@ -112,7 +112,7 @@ export default async function ReviewDetailPage({
                 >
                   <div className="bubble-head">
                     <span>
-                      <span className="bubble-seq">#{i + 1}</span>{" "}
+                      <span className="bubble-seq">#{conversation.ref}.{i + 1}</span>{" "}
                       {m.direction === "INBOUND" ? "Πελάτης" : "TFP"} · {m.fromEmail}
                       {attByMsg.has(m.id) && (
                         <span className="muted"> · 📎 {attByMsg.get(m.id)!.length}</span>
