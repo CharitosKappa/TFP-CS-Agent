@@ -5,6 +5,10 @@ import { z } from "zod";
  * Parsing is lazy (via getEnv) so `next build` doesn't fail when secrets are
  * absent — only code paths that actually call an external service require them.
  */
+// In a .env, an unset optional var is usually present-but-empty ("") rather than
+// absent. Treat "" as undefined so .optional()/.url() don't reject blank lines.
+const emptyToUndefined = (v: unknown) => (v === "" ? undefined : v);
+
 const EnvSchema = z.object({
   // Anthropic
   ANTHROPIC_API_KEY: z.string().min(1),
@@ -17,12 +21,15 @@ const EnvSchema = z.object({
   GRAPH_CLIENT_SECRET: z.string().min(1),
   GRAPH_MAILBOX: z.string().min(1),
   // Optional — only needed for the webhook subscription (manual sync works without these).
-  GRAPH_WEBHOOK_NOTIFICATION_URL: z.string().url().optional(),
-  GRAPH_WEBHOOK_CLIENT_STATE: z.string().optional(),
+  GRAPH_WEBHOOK_NOTIFICATION_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  GRAPH_WEBHOOK_CLIENT_STATE: z.preprocess(emptyToUndefined, z.string().optional()),
 
-  // Shopify
+  // Shopify — Dev Dashboard custom app. The Admin API token is fetched at runtime
+  // via the OAuth client_credentials grant from these client id/secret (see
+  // shopify/client.ts), not stored statically.
   SHOPIFY_STORE_DOMAIN: z.string().min(1),
-  SHOPIFY_ADMIN_TOKEN: z.string().min(1),
+  SHOPIFY_CLIENT_ID: z.string().min(1),
+  SHOPIFY_CLIENT_SECRET: z.string().min(1),
   SHOPIFY_API_VERSION: z.string().default("2025-10"),
 
   // Database

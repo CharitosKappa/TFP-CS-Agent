@@ -1,9 +1,33 @@
 import type { Intent } from "../agent/types";
 import { getCustomerByEmail, type ShopifyCustomerSummary } from "./customers";
+import {
+  getDiscountByCode,
+  getLegacyDiscountByCode,
+  type ShopifyDiscountSummary,
+} from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 
 function fmtDate(iso: string): string {
   return iso.slice(0, 10);
+}
+
+function formatDiscount(d: ShopifyDiscountSummary): string {
+  const status =
+    d.status === "ACTIVE"
+      ? "ενεργός"
+      : d.status === "EXPIRED"
+        ? "έληξε"
+        : d.status === "SCHEDULED"
+          ? "προγραμματισμένος (δεν ισχύει ακόμη)"
+          : d.status;
+  return [
+    `Κωδικός έκπτωσης "${d.code}": ${status}`,
+    d.title && d.title !== d.code ? `- Τίτλος: ${d.title}` : "",
+    d.summary ? `- Όροι: ${d.summary}` : "",
+    d.endsAt ? `- Λήξη: ${fmtDate(d.endsAt)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function formatOrder(o: ShopifyOrderSummary): string {
@@ -48,6 +72,7 @@ function formatCustomer(c: ShopifyCustomerSummary): string {
 export async function gatherShopifyContext(input: {
   orderNumber?: string;
   customerEmail?: string;
+  couponCode?: string;
   intent?: Intent;
 }): Promise<string | undefined> {
   const parts: string[] = [];
@@ -59,6 +84,34 @@ export async function gatherShopifyContext(input: {
     if (input.customerEmail) {
       const customer = await getCustomerByEmail(input.customerEmail);
       if (customer) parts.push(formatCustomer(customer));
+    }
+    if (input.couponCode) {
+      // Check both discount systems: modern code discounts, then (if not found)
+      // legacy price-rule codes. Each lookup is isolated so one failing (e.g.
+      // missing scope) doesn't block the other.
+      const lookup = async (
+        fn: (c: string) => Promise<ShopifyDiscountSummary | null>,
+      ): Promise<ShopifyDiscountSummary | null> => {
+        try {
+          return await fn(input.couponCode as string);
+        } catch (e) {
+          console.error("discount lookup failed:", e);
+          return null;
+        }
+      };
+      const discount =
+        (await lookup(getDiscountByCode)) ?? (await lookup(getLegacyDiscountByCode));
+      parts.push(
+        discount
+          ? formatDiscount(discount)
+          : `Κωδικός έκπτωσης "${input.couponCode}": δεν επιστράφηκε από το Shopify API. ` +
+            `Αυτό ΔΕΝ σημαίνει απαραίτητα ότι δεν υπάρχει — μπορεί να ισχύει μόνο για ` +
+            `συγκεκριμένα προϊόντα/συλλογές/αγορές ή να έχει δημιουργηθεί από εξωτερική ` +
+            `εφαρμογή (affiliate/influencer) που δεν είναι ορατή εδώ. ΜΗΝ πεις στον πελάτη ` +
+            `ότι ο κωδικός δεν υπάρχει· εξήγησε ευγενικά ότι ένας κωδικός συχνά ισχύει μόνο ` +
+            `σε επιλεγμένα προϊόντα/για περιορισμένο διάστημα/με ελάχιστη αξία, ζήτησε τον ` +
+            `σύνδεσμο του προϊόντος και την πηγή του κωδικού, και πρότεινε έλεγχο από συνάδελφο.`,
+      );
     }
   } catch (e) {
     console.error("shopify lookup failed:", e);

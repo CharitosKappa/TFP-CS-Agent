@@ -67,9 +67,13 @@ cp .env.example .env   # συμπληρώστε τις τιμές
 - **Azure AD app registration** με **application** permissions `Mail.ReadWrite` +
   `Mail.Send` (admin consent). Συμπληρώστε `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`,
   `GRAPH_CLIENT_SECRET`, `GRAPH_MAILBOX` (π.χ. `support@thefashionproject.gr`).
-- **Shopify custom app** Admin API token → `SHOPIFY_*`. Απαιτούμενα scopes:
-  `read_orders`, `read_customers`, `read_products` (+ έγκριση protected customer
-  data αν χρειαστεί στη χρησιμοποιούμενη API version).
+- **Shopify Dev Dashboard custom app** → `SHOPIFY_CLIENT_ID` + `SHOPIFY_CLIENT_SECRET`
+  (από Dev Dashboard › app › Settings) + `SHOPIFY_STORE_DOMAIN`. Το Admin API token
+  παράγεται **runtime** μέσω OAuth `client_credentials` grant (βλ. `shopify/client.ts`)
+  — δεν αποθηκεύεται στατικά. Προϋποθέσεις: app + store στον **ίδιο Dev Dashboard org**,
+  scopes `read_orders`/`read_customers`/`read_products`/`read_discounts` (+ `read_price_rules`
+  για legacy κωδικούς έκπτωσης) ρυθμισμένα, και app **installed**
+  στο store (αλλιώς `shop_not_permitted`).
 - **Anthropic** API key → `ANTHROPIC_API_KEY`.
 
 ### 3. Database
