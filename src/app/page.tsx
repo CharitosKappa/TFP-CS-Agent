@@ -38,7 +38,7 @@ export default async function QueuePage() {
             <span key={s.draftId}>
               {i > 0 && ", "}
               <Link href={`/review/${s.conversationId}`}>
-                {s.customerEmail}
+                #{s.ref} {s.customerEmail}
               </Link>
             </span>
           ))}
@@ -61,6 +61,7 @@ export default async function QueuePage() {
             >
               <div className="queue-item-top">
                 <div className="queue-item-customer">
+                  <span className="case-ref">#{item.ref}</span>{" "}
                   {item.customerName ?? item.customerEmail}
                   {item.customerName && <span>{item.customerEmail}</span>}
                 </div>

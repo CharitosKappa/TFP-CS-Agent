@@ -10,6 +10,8 @@ export interface DraftReplyInput {
   caseSummary: string;
   recentMessages: PromptContext["recentMessages"];
   incomingMessage: string;
+  /** Email subject — often carries the order number; seen by classify + draft. */
+  subject?: string;
   /** Pre-computed Shopify context (takes precedence over gatherShopify). */
   shopifyContext?: string;
   /** Reviewer feedback fed back in when regenerating a rejected draft. */
@@ -28,7 +30,7 @@ export interface DraftReplyInput {
 export async function draftReplyForInbound(
   input: DraftReplyInput,
 ): Promise<DraftResult> {
-  const classification = await classifyEmail(input.incomingMessage);
+  const classification = await classifyEmail(input.incomingMessage, input.subject);
 
   let shopifyContext = input.shopifyContext;
   if (!shopifyContext && input.gatherShopify) {
@@ -39,7 +41,8 @@ export async function draftReplyForInbound(
     }
   }
 
-  const redline = detectRedLines(input.incomingMessage);
+  // Red-line scan over subject + body (the subject can carry red-line wording too).
+  const redline = detectRedLines(`${input.subject ?? ""}\n${input.incomingMessage}`);
   // Low classifier confidence is itself a red line.
   if (classification.confidence < ESCALATION_CONFIDENCE_THRESHOLD) {
     redline.escalate = true;
@@ -53,6 +56,7 @@ export async function draftReplyForInbound(
     caseSummary: input.caseSummary,
     recentMessages: input.recentMessages,
     incomingMessage: input.incomingMessage,
+    subject: input.subject,
     shopifyContext,
     reviewerGuidance: input.reviewerGuidance,
   };

@@ -59,12 +59,14 @@ export async function processInboundMessage(
     caseSummary: conv.summary ?? "",
     recentMessages,
     incomingMessage: message.bodyText,
+    subject: conv.subject ?? undefined,
     reviewerGuidance,
     gatherShopify: (c) =>
       gatherShopifyContext({
         orderNumber: c.orderNumber,
         // Fall back to the conversation's known customer email.
         customerEmail: c.customerEmail || conv.customerEmail,
+        couponCode: c.couponCode,
         intent: c.intent,
       }),
   });

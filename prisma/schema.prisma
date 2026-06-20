@@ -46,6 +46,8 @@ enum KnowledgeSource {
 
 model Conversation {
   id                  String             @id @default(cuid())
+  // Human-friendly reference shown to staff (e.g. "#1042") for search/discussion.
+  ref                 Int                @unique @default(autoincrement())
   graphConversationId String             @unique
   subject             String?
   customerEmail       String

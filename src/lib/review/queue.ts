@@ -4,6 +4,7 @@ import type { Classification } from "@/lib/agent/types";
 
 export interface QueueItem {
   conversationId: string;
+  ref: number;
   draftId: string;
   draftStatus: string;
   subject: string | null;
@@ -45,6 +46,7 @@ export async function getReviewQueue(): Promise<QueueItem[]> {
     const body = d.triggerMessage?.bodyText ?? "";
     return {
       conversationId: d.conversationId,
+      ref: d.conversation.ref,
       draftId: d.id,
       draftStatus: d.status,
       subject: d.conversation.subject,
@@ -76,6 +78,7 @@ export async function getQueueCount(): Promise<number> {
 
 export interface StuckSend {
   conversationId: string;
+  ref: number;
   draftId: string;
   customerEmail: string;
   subject: string | null;
@@ -95,6 +98,7 @@ export async function getStuckSends(): Promise<StuckSend[]> {
   });
   return drafts.map((d) => ({
     conversationId: d.conversationId,
+    ref: d.conversation.ref,
     draftId: d.id,
     customerEmail: d.conversation.customerEmail,
     subject: d.conversation.subject,

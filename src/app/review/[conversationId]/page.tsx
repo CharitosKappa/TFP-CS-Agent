@@ -66,7 +66,10 @@ export default async function ReviewDetailPage({
       </Link>
 
       <div className="page-head">
-        <h1>{conversation.customerName ?? conversation.customerEmail}</h1>
+        <h1>
+          <span className="case-ref">#{conversation.ref}</span>{" "}
+          {conversation.customerName ?? conversation.customerEmail}
+        </h1>
         <span className="badge neutral">
           {CONVERSATION_STATUS_LABELS[conversation.status] ?? conversation.status}
         </span>
@@ -79,13 +82,14 @@ export default async function ReviewDetailPage({
       <div className="card">
         <h2>Συνομιλία</h2>
         <div className="thread">
-          {conversation.messages.map((m) => (
+          {conversation.messages.map((m, i) => (
             <div
               key={m.id}
               className={`bubble ${m.direction === "INBOUND" ? "inbound" : "outbound"}`}
             >
               <div className="bubble-head">
                 <span>
+                  <span className="bubble-seq">#{i + 1}</span>{" "}
                   {m.direction === "INBOUND" ? "Πελάτης" : "TFP"} · {m.fromEmail}
                 </span>
                 <span>{formatDateTime(m.receivedAt)}</span>

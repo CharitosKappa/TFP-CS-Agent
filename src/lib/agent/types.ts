@@ -19,6 +19,8 @@ export interface Classification {
   language: string;
   orderNumber?: string;
   customerEmail?: string;
+  /** Discount/coupon code the customer mentions, if any (for Shopify lookup). */
+  couponCode?: string;
   sentiment: "positive" | "neutral" | "negative";
   /** One-line summary of what the customer wants. */
   summary: string;
@@ -42,6 +44,8 @@ export interface PromptContext {
   caseSummary: string;
   recentMessages: { direction: "INBOUND" | "OUTBOUND"; body: string }[];
   incomingMessage: string;
+  /** Email subject (often carries the order number, e.g. "Order43605"). */
+  subject?: string;
   shopifyContext?: string;
   /**
    * Guidance from a human reviewer who rejected the previous draft. Fed back
