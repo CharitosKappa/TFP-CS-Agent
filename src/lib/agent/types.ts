@@ -48,6 +48,8 @@ export interface PromptContext {
   subject?: string;
   /** Image attachments from the customer's message, fed to the model (vision). */
   images?: { mediaType: string; data: string }[];
+  /** Text summary of ALL attachments, so the agent never re-asks for sent files. */
+  attachmentSummary?: string;
   shopifyContext?: string;
   /**
    * Guidance from a human reviewer who rejected the previous draft. Fed back

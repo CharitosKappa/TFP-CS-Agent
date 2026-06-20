@@ -14,6 +14,8 @@ export interface DraftReplyInput {
   subject?: string;
   /** Image attachments from the customer's message, fed to the draft model. */
   images?: { mediaType: string; data: string }[];
+  /** Text summary of all attachments (so the agent doesn't re-ask for sent files). */
+  attachmentSummary?: string;
   /** Pre-computed Shopify context (takes precedence over gatherShopify). */
   shopifyContext?: string;
   /** Reviewer feedback fed back in when regenerating a rejected draft. */
@@ -60,6 +62,7 @@ export async function draftReplyForInbound(
     incomingMessage: input.incomingMessage,
     subject: input.subject,
     images: input.images,
+    attachmentSummary: input.attachmentSummary,
     shopifyContext,
     reviewerGuidance: input.reviewerGuidance,
   };

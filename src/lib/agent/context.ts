@@ -44,8 +44,7 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
     ctx.shopifyContext && `# Δεδομένα Shopify\n${ctx.shopifyContext}`,
     history && `# Πρόσφατα μηνύματα\n${history}`,
     `# Νέο μήνυμα πελάτη (προς απάντηση)\n${ctx.incomingMessage}`,
-    ctx.images?.length &&
-      `# Συνημμένες εικόνες πελάτη\nΟ πελάτης επισύναψε ${ctx.images.length} εικόνα(ες) (παρακάτω). Λάβε τις υπόψη στην απάντηση.`,
+    ctx.attachmentSummary && `# Συνημμένα πελάτη\n${ctx.attachmentSummary}`,
     ctx.reviewerGuidance &&
       `# Οδηγία ελεγκτή (το προηγούμενο draft απορρίφθηκε — διόρθωσέ το)\n${ctx.reviewerGuidance}`,
     `Σύνταξε την απάντηση (draft) προς τον πελάτη.`,

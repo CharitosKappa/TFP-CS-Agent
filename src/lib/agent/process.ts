@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { getMessageAttachments } from "../graph/messages";
 import { loadPolicies } from "../knowledge/policies";
+import { downscaleImage } from "../media/downscale";
 import { errInfo, log } from "../observability/logger";
 import { gatherShopifyContext } from "../shopify/context";
 import { draftReplyForInbound } from "./pipeline";
@@ -11,28 +12,57 @@ import { updateCaseSummary } from "./summary";
 const RECENT_LIMIT = 6;
 
 // Image attachments fed to the draft model (vision). Bounded for cost/limits.
+// Cap keeps base64 under Claude's ~5MB/image limit (3.5MB raw ≈ 4.6MB base64).
 const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_IMAGES = 4;
-const MAX_IMAGE_BYTES = 4_000_000;
+const MAX_IMAGE_BYTES = 3_500_000;
 
-/** Best-effort: fetch the customer message's image attachments for the model. */
-async function fetchInboundImages(
-  graphMessageId: string,
-): Promise<{ mediaType: string; data: string }[]> {
+interface InboundMedia {
+  images: { mediaType: string; data: string }[];
+  /** Text the model always sees, so it knows what was attached (even oversized/non-image). */
+  summary?: string;
+}
+
+/**
+ * Best-effort: fetch the customer message's attachments. Returns the image bytes
+ * the model can "see" (vision, capped) PLUS a text summary of ALL attachments —
+ * so the agent never re-asks for files/photos the customer already sent.
+ */
+async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> {
   try {
     const attachments = await getMessageAttachments(graphMessageId);
-    return attachments
-      .filter(
-        (a) =>
-          a.contentBytes &&
-          SUPPORTED_IMAGE_TYPES.includes(a.contentType.toLowerCase()) &&
-          a.size <= MAX_IMAGE_BYTES,
-      )
-      .slice(0, MAX_IMAGES)
-      .map((a) => ({ mediaType: a.contentType.toLowerCase(), data: a.contentBytes as string }));
+    if (!attachments.length) return { images: [] };
+
+    const imageAtts = attachments.filter((a) => a.contentType.toLowerCase().startsWith("image/"));
+    const fileAtts = attachments.filter((a) => !a.contentType.toLowerCase().startsWith("image/"));
+
+    const images: { mediaType: string; data: string }[] = [];
+    for (const a of imageAtts) {
+      if (images.length >= MAX_IMAGES) break;
+      if (!a.contentBytes) continue;
+      const ct = a.contentType.toLowerCase();
+      if (SUPPORTED_IMAGE_TYPES.includes(ct) && a.size <= MAX_IMAGE_BYTES) {
+        images.push({ mediaType: ct, data: a.contentBytes });
+      } else {
+        // Too large or an unsupported type → downscale/re-encode to a safe JPEG.
+        const ds = await downscaleImage(a.contentBytes);
+        if (ds) images.push(ds);
+      }
+    }
+
+    const parts: string[] = [];
+    if (imageAtts.length) parts.push(`${imageAtts.length} εικόνα(ες)`);
+    if (fileAtts.length) parts.push(`${fileAtts.length} αρχείο(α)`);
+    let summary = `Ο πελάτης ΕΧΕΙ ΕΠΙΣΥΝΑΨΕΙ ${parts.join(" + ")}: ${attachments
+      .map((a) => a.name)
+      .join(", ")}. ΜΗΝ ζητήσεις ξανά αρχεία/φωτογραφίες που έχουν ήδη σταλεί.`;
+    if (imageAtts.length > images.length) {
+      summary += ` (${images.length} εικόνα(ες) εμφανίζονται παρακάτω· οι υπόλοιπες παραλείφθηκαν λόγω μεγέθους αλλά υπάρχουν στο email.)`;
+    }
+    return { images, summary };
   } catch (e) {
     log.warn("attachment_fetch_failed", { ...errInfo(e) });
-    return [];
+    return { images: [] };
   }
 }
 
@@ -80,7 +110,7 @@ export async function processInboundMessage(
     .map((m) => ({ direction: m.direction, body: m.bodyText }));
 
   const policies = await loadPolicies();
-  const images = await fetchInboundImages(message.graphMessageId);
+  const media = await fetchInboundMedia(message.graphMessageId);
 
   const result = await draftReplyForInbound({
     policies,
@@ -88,7 +118,8 @@ export async function processInboundMessage(
     recentMessages,
     incomingMessage: message.bodyText,
     subject: conv.subject ?? undefined,
-    images,
+    images: media.images,
+    attachmentSummary: media.summary,
     reviewerGuidance,
     gatherShopify: (c) =>
       gatherShopifyContext({
