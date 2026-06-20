@@ -38,12 +38,14 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
     .map((m) => `[${m.direction === "INBOUND" ? "Πελάτης" : "Εμείς"}] ${m.body}`)
     .join("\n\n");
 
-  const content = [
+  const text = [
     ctx.subject && `# Θέμα email\n${ctx.subject}`,
     ctx.caseSummary && `# Περίληψη υπόθεσης (rolling)\n${ctx.caseSummary}`,
     ctx.shopifyContext && `# Δεδομένα Shopify\n${ctx.shopifyContext}`,
     history && `# Πρόσφατα μηνύματα\n${history}`,
     `# Νέο μήνυμα πελάτη (προς απάντηση)\n${ctx.incomingMessage}`,
+    ctx.images?.length &&
+      `# Συνημμένες εικόνες πελάτη\nΟ πελάτης επισύναψε ${ctx.images.length} εικόνα(ες) (παρακάτω). Λάβε τις υπόψη στην απάντηση.`,
     ctx.reviewerGuidance &&
       `# Οδηγία ελεγκτή (το προηγούμενο draft απορρίφθηκε — διόρθωσέ το)\n${ctx.reviewerGuidance}`,
     `Σύνταξε την απάντηση (draft) προς τον πελάτη.`,
@@ -51,5 +53,17 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
     .filter(Boolean)
     .join("\n\n");
 
-  return [{ role: "user", content }];
+  if (!ctx.images?.length) {
+    return [{ role: "user", content: text }];
+  }
+
+  const imageBlocks: Anthropic.ImageBlockParam[] = ctx.images.map((img) => ({
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: img.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+      data: img.data,
+    },
+  }));
+  return [{ role: "user", content: [{ type: "text", text }, ...imageBlocks] }];
 }

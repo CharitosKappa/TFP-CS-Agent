@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { getMessageAttachments } from "../graph/messages";
 import { loadPolicies } from "../knowledge/policies";
 import { errInfo, log } from "../observability/logger";
 import { gatherShopifyContext } from "../shopify/context";
@@ -8,6 +9,32 @@ import { updateCaseSummary } from "./summary";
 
 // How many prior messages to include verbatim (older history lives in the summary).
 const RECENT_LIMIT = 6;
+
+// Image attachments fed to the draft model (vision). Bounded for cost/limits.
+const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 4_000_000;
+
+/** Best-effort: fetch the customer message's image attachments for the model. */
+async function fetchInboundImages(
+  graphMessageId: string,
+): Promise<{ mediaType: string; data: string }[]> {
+  try {
+    const attachments = await getMessageAttachments(graphMessageId);
+    return attachments
+      .filter(
+        (a) =>
+          a.contentBytes &&
+          SUPPORTED_IMAGE_TYPES.includes(a.contentType.toLowerCase()) &&
+          a.size <= MAX_IMAGE_BYTES,
+      )
+      .slice(0, MAX_IMAGES)
+      .map((a) => ({ mediaType: a.contentType.toLowerCase(), data: a.contentBytes as string }));
+  } catch (e) {
+    log.warn("attachment_fetch_failed", { ...errInfo(e) });
+    return [];
+  }
+}
 
 export interface ProcessResult {
   draftId: string;
@@ -53,6 +80,7 @@ export async function processInboundMessage(
     .map((m) => ({ direction: m.direction, body: m.bodyText }));
 
   const policies = await loadPolicies();
+  const images = await fetchInboundImages(message.graphMessageId);
 
   const result = await draftReplyForInbound({
     policies,
@@ -60,6 +88,7 @@ export async function processInboundMessage(
     recentMessages,
     incomingMessage: message.bodyText,
     subject: conv.subject ?? undefined,
+    images,
     reviewerGuidance,
     gatherShopify: (c) =>
       gatherShopifyContext({

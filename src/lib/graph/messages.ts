@@ -61,6 +61,53 @@ export async function fetchMessage(id: string): Promise<GraphMessage> {
   return (await res.json()) as GraphMessage;
 }
 
+export interface GraphAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  isInline: boolean;
+  contentId: string | null;
+  /** base64 file bytes (fileAttachment only). */
+  contentBytes: string | null;
+}
+
+interface RawAttachment {
+  "@odata.type"?: string;
+  id: string;
+  name?: string;
+  contentType?: string;
+  size?: number;
+  isInline?: boolean;
+  contentId?: string | null;
+  contentBytes?: string | null;
+}
+
+/**
+ * Fetches a message's file attachments on-demand (not stored — see PRIVACY.md).
+ * Returns only fileAttachments (which carry contentBytes); item/reference
+ * attachments are skipped.
+ */
+export async function getMessageAttachments(
+  graphMessageId: string,
+): Promise<GraphAttachment[]> {
+  const res = await graphFetch(
+    `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}/attachments`,
+  );
+  const data = (await res.json()) as GraphListResponse<RawAttachment>;
+  return data.value
+    .filter((a) => (a["@odata.type"] ?? "").includes("fileAttachment"))
+    .map((a) => ({
+      id: a.id,
+      name: a.name ?? "file",
+      contentType: a.contentType ?? "application/octet-stream",
+      size: a.size ?? 0,
+      isInline: !!a.isInline,
+      contentId: a.contentId ?? null,
+      contentBytes: a.contentBytes ?? null,
+    }));
+}
+
 export interface SentReply {
   /**
    * Id of the reply message (the Drafts copy that was sent). It differs from the

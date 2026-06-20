@@ -12,6 +12,8 @@ export interface DraftReplyInput {
   incomingMessage: string;
   /** Email subject — often carries the order number; seen by classify + draft. */
   subject?: string;
+  /** Image attachments from the customer's message, fed to the draft model. */
+  images?: { mediaType: string; data: string }[];
   /** Pre-computed Shopify context (takes precedence over gatherShopify). */
   shopifyContext?: string;
   /** Reviewer feedback fed back in when regenerating a rejected draft. */
@@ -57,6 +59,7 @@ export async function draftReplyForInbound(
     recentMessages: input.recentMessages,
     incomingMessage: input.incomingMessage,
     subject: input.subject,
+    images: input.images,
     shopifyContext,
     reviewerGuidance: input.reviewerGuidance,
   };

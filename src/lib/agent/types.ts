@@ -46,6 +46,8 @@ export interface PromptContext {
   incomingMessage: string;
   /** Email subject (often carries the order number, e.g. "Order43605"). */
   subject?: string;
+  /** Image attachments from the customer's message, fed to the model (vision). */
+  images?: { mediaType: string; data: string }[];
   shopifyContext?: string;
   /**
    * Guidance from a human reviewer who rejected the previous draft. Fed back
