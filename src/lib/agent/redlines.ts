@@ -91,6 +91,15 @@ export const RED_LINE_RULES: RedLineRule[] = [
       "cheap quality",
     ],
   },
+  {
+    key: "product_defect",
+    description: "Ελαττωματικό/χαλασμένο προϊόν ή αίτημα αντικατάστασης",
+    // Policy: defect/replacement complaints reach a human even without explicit
+    // "ποιότητα" wording — e.g. "χάλασε", "φθαρμένο", "προς αντικατάσταση". This
+    // intentionally escalates most replacement RMAs (a deliberate trade-off).
+    stems: ["ελαττωμ", "φθαρ", "φθορ", "χαλασ", "αντικαταστ", "defect", "damag", "replac"],
+    words: ["faulty", "broken", "torn", "ripped"],
+  },
 ];
 
 /** Minimum classification confidence below which we escalate to a human. */
