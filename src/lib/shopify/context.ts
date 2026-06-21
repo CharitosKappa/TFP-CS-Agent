@@ -38,7 +38,8 @@ function formatOrder(o: ShopifyOrderSummary): string {
     .join(" | ");
   return [
     `Παραγγελία ${o.name} (${fmtDate(o.createdAt)})`,
-    `- Εκτέλεση: ${o.fulfillmentStatus} | Πληρωμή: ${o.financialStatus}`,
+    `- Εκτέλεση: ${o.fulfillmentStatus} | Κατάσταση πληρωμής: ${o.financialStatus}`,
+    o.paymentMethod ? `- Τρόπος πληρωμής: ${o.paymentMethod}` : "",
     `- Σύνολο: ${o.total} ${o.currency}`,
     o.shippingCity ? `- Αποστολή προς: ${o.shippingCity}` : "",
     items ? `- Είδη: ${items}` : "",

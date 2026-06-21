@@ -274,6 +274,12 @@ export default async function ReviewDetailPage({
                   {order.fulfillmentStatus} / {order.financialStatus}
                 </b>
               </div>
+              {order.paymentMethod && (
+                <div className="kv">
+                  <span>Πληρωμή</span>
+                  <b>{order.paymentMethod}</b>
+                </div>
+              )}
               <div className="kv">
                 <span>Σύνολο</span>
                 <b>
