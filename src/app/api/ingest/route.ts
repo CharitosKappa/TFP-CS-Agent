@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 function clampLimit(value: string | null, fallback: number): number {
   const n = Number(value ?? fallback);
   if (!Number.isFinite(n)) return fallback;
-  return Math.min(50, Math.max(1, Math.floor(n)));
+  return Math.min(100, Math.max(1, Math.floor(n)));
 }
 
 /**
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   }
 
   const params = new URL(req.url).searchParams;
-  const limit = clampLimit(params.get("limit"), 25);
+  const limit = clampLimit(params.get("limit"), 50);
   try {
     const result = await syncInbox({ limit });
     const drafting =

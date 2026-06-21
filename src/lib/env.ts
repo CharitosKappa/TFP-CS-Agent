@@ -20,6 +20,12 @@ const EnvSchema = z.object({
   GRAPH_CLIENT_ID: z.string().min(1),
   GRAPH_CLIENT_SECRET: z.string().min(1),
   GRAPH_MAILBOX: z.string().min(1),
+  // Extra email domains that count as "us" — the mailbox's aliases on other
+  // domains (e.g. the *.onmicrosoft.com tenant domain), comma-separated. The
+  // GRAPH_MAILBOX's own domain is always treated as internal automatically, so
+  // this is only for aliases on a DIFFERENT domain. Used to tell our own
+  // addresses apart from the customer when threading (see ingestion/sync.ts).
+  INTERNAL_EMAIL_DOMAINS: z.preprocess(emptyToUndefined, z.string().optional()),
   // Optional — only needed for the webhook subscription (manual sync works without these).
   GRAPH_WEBHOOK_NOTIFICATION_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   GRAPH_WEBHOOK_CLIENT_STATE: z.preprocess(emptyToUndefined, z.string().optional()),

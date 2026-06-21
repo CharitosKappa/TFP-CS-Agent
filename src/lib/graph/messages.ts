@@ -30,8 +30,9 @@ function odata(params: Record<string, string>): string {
     .join("&");
 }
 
-/** Fetches recent inbox messages (newest first), paging up to `limit`. */
-export async function fetchInboxMessages(
+/** Fetches recent messages from a mail folder (newest first), paging up to `limit`. */
+async function fetchFolderMessages(
+  folder: string,
   opts: { limit?: number; since?: Date } = {},
 ): Promise<GraphMessage[]> {
   const limit = opts.limit ?? 25;
@@ -42,7 +43,7 @@ export async function fetchInboxMessages(
   };
   if (opts.since) params.$filter = `receivedDateTime ge ${opts.since.toISOString()}`;
 
-  let next: string | null = `${mailboxPath()}/mailFolders/inbox/messages?${odata(params)}`;
+  let next: string | null = `${mailboxPath()}/mailFolders/${folder}/messages?${odata(params)}`;
   const out: GraphMessage[] = [];
   while (next && out.length < limit) {
     const rel: string = next.startsWith("http") ? next.slice(GRAPH_BASE.length) : next;
@@ -52,6 +53,20 @@ export async function fetchInboxMessages(
     next = data["@odata.nextLink"] ?? null;
   }
   return out.slice(0, limit);
+}
+
+/** Recent inbox messages (customer → us), newest first. */
+export function fetchInboxMessages(opts: { limit?: number; since?: Date } = {}) {
+  return fetchFolderMessages("inbox", opts);
+}
+
+/**
+ * Recent Sent Items (us → customer), newest first. Ingesting these gives the
+ * thread our replies — including ones sent directly from Outlook, not just via
+ * the app — so conversation history is complete.
+ */
+export function fetchSentMessages(opts: { limit?: number; since?: Date } = {}) {
+  return fetchFolderMessages("sentitems", opts);
 }
 
 /** Fetches a single message by id from the shared mailbox. */
@@ -144,6 +159,8 @@ export interface SentReply {
   graphMessageId: string;
   conversationId: string;
   toEmails: string[];
+  /** RFC Message-ID — stable across folders, so Sent Items ingestion can dedupe this reply. */
+  internetMessageId: string | null;
 }
 
 /**
@@ -185,6 +202,9 @@ export async function sendReplyInThread(
   return {
     graphMessageId: draft.id,
     conversationId: draft.conversationId,
+    // Assigned at draft creation and preserved through send, so it matches the
+    // Sent Items copy — lets ingestion dedupe instead of double-recording.
+    internetMessageId: draft.internetMessageId ?? null,
     toEmails: (draft.toRecipients ?? [])
       .map((r) => r.emailAddress?.address?.toLowerCase())
       .filter((a): a is string => Boolean(a)),

@@ -96,6 +96,7 @@ export async function sendDraftReply(
         data: {
           conversationId: draft.conversationId,
           graphMessageId: sent.graphMessageId,
+          internetMessageId: sent.internetMessageId,
           direction: "OUTBOUND",
           fromEmail: mailbox,
           toEmails: sent.toEmails.length

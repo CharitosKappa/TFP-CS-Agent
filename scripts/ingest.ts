@@ -1,9 +1,9 @@
 import "dotenv/config";
 import { syncInbox } from "../src/lib/ingestion/sync";
 
-// Usage: npx tsx scripts/ingest.ts [limit]
-const parsed = Number(process.argv[2] ?? "25");
-const limit = Number.isFinite(parsed) ? parsed : 25;
+// Usage: npx tsx scripts/ingest.ts [limit]  (per folder: Inbox + Sent Items)
+const parsed = Number(process.argv[2] ?? "50");
+const limit = Number.isFinite(parsed) ? parsed : 50;
 
 syncInbox({ limit })
   .then((r) => {

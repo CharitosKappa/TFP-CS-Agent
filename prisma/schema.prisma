@@ -71,6 +71,10 @@ model Message {
   id             String           @id @default(cuid())
   conversationId String
   graphMessageId String           @unique
+  // RFC Message-ID header — stable across folders (Inbox/Sent/Drafts), unlike the
+  // folder-specific Graph id. Dedupe key so a reply ingested from Sent Items isn't
+  // double-recorded against the copy we saved when sending in-app.
+  internetMessageId String?       @unique
   direction      MessageDirection
   fromEmail      String
   toEmails       String[]
