@@ -1,6 +1,7 @@
 import { classifyEmail } from "./classify";
 import { generateDraft } from "./draft";
 import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD } from "./redlines";
+import type { InlineImage } from "../media/image";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
 export interface DraftReplyInput {
@@ -13,7 +14,7 @@ export interface DraftReplyInput {
   /** Email subject — often carries the order number; seen by classify + draft. */
   subject?: string;
   /** Image attachments from the customer's message, fed to the draft model. */
-  images?: { mediaType: string; data: string }[];
+  images?: InlineImage[];
   /** Text summary of all attachments (so the agent doesn't re-ask for sent files). */
   attachmentSummary?: string;
   /** Pre-computed Shopify context (takes precedence over gatherShopify). */

@@ -3,16 +3,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { QueueItem } from "@/lib/review/queue";
-import { intentLabel, redLineLabel, relativeTime } from "@/lib/review/labels";
+import {
+  intentLabel,
+  redLineLabel,
+  relativeTime,
+  sentimentBadgeClass,
+  sentimentLabel,
+} from "@/lib/review/labels";
 
-function sentimentBadgeClass(s: string | null): string {
-  if (s === "negative") return "badge danger";
-  if (s === "positive") return "badge ok";
-  return "badge neutral";
-}
-function sentimentLabel(s: string | null): string {
-  return s === "negative" ? "Αρνητικό" : s === "positive" ? "Θετικό" : "Ουδέτερο";
-}
 const ts = (d: Date | string) => new Date(d).getTime();
 
 export default function QueueList({
@@ -35,6 +33,7 @@ export default function QueueList({
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
+    // filter() returns a fresh array, so sorting it in place is safe.
     const r = items.filter((i) => {
       if (intent !== "all" && i.intent !== intent) return false;
       if (esc === "escalated" && !i.isEscalated) return false;
@@ -46,20 +45,11 @@ export default function QueueList({
       }
       return true;
     });
-    const sorted = [...r];
-    if (sort === "oldest") sorted.sort((a, b) => ts(a.waitingSince) - ts(b.waitingSince));
-    else if (sort === "newest") sorted.sort((a, b) => ts(b.waitingSince) - ts(a.waitingSince));
-    else if (sort === "confidence")
-      sorted.sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1));
-    else
-      sorted.sort((a, b) =>
-        a.isEscalated !== b.isEscalated
-          ? a.isEscalated
-            ? -1
-            : 1
-          : ts(a.waitingSince) - ts(b.waitingSince),
-      );
-    return sorted;
+    if (sort === "oldest") return r.sort((a, b) => ts(a.waitingSince) - ts(b.waitingSince));
+    if (sort === "newest") return r.sort((a, b) => ts(b.waitingSince) - ts(a.waitingSince));
+    if (sort === "confidence") return r.sort((a, b) => (a.confidence ?? 1) - (b.confidence ?? 1));
+    // "priority": items already arrive escalated-first / oldest-first from getReviewQueue.
+    return r;
   }, [items, q, intent, esc, sort]);
 
   return (

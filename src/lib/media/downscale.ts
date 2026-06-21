@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { errInfo, log } from "../observability/logger";
+import type { InlineImage } from "./image";
 
 // Claude vision works best with the long edge ≤ ~1568px; keep the base64 well
 // under the ~5MB/image API limit.
@@ -12,9 +13,7 @@ const TARGET_MAX_BYTES = 3_500_000;
  * can't be decoded or shrunk enough. Use for oversized or non-JPEG/PNG/GIF/WEBP
  * attachments so they can still be fed to the model instead of being dropped.
  */
-export async function downscaleImage(
-  base64: string,
-): Promise<{ mediaType: "image/jpeg"; data: string } | null> {
+export async function downscaleImage(base64: string): Promise<InlineImage | null> {
   try {
     const input = Buffer.from(base64, "base64");
     for (const quality of [80, 65, 50, 40]) {

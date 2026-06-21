@@ -51,6 +51,20 @@ export function intentLabel(intent: string | null | undefined): string {
   return INTENT_LABELS[intent as Intent] ?? intent;
 }
 
+export function sentimentLabel(sentiment: string | null | undefined): string {
+  return sentiment === "negative"
+    ? "Αρνητικό"
+    : sentiment === "positive"
+      ? "Θετικό"
+      : "Ουδέτερο";
+}
+
+export function sentimentBadgeClass(sentiment: string | null | undefined): string {
+  if (sentiment === "negative") return "badge danger";
+  if (sentiment === "positive") return "badge ok";
+  return "badge neutral";
+}
+
 const RTF = new Intl.RelativeTimeFormat("el", { numeric: "auto" });
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 31536000],

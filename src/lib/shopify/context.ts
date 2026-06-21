@@ -7,7 +7,7 @@ import {
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 
-function fmtDate(iso: string): string {
+export function fmtDate(iso: string): string {
   return iso.slice(0, 10);
 }
 

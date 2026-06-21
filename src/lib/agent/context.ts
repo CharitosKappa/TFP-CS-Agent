@@ -58,11 +58,7 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
 
   const imageBlocks: Anthropic.ImageBlockParam[] = ctx.images.map((img) => ({
     type: "image",
-    source: {
-      type: "base64",
-      media_type: img.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-      data: img.data,
-    },
+    source: { type: "base64", media_type: img.mediaType, data: img.data },
   }));
   return [{ role: "user", content: [{ type: "text", text }, ...imageBlocks] }];
 }

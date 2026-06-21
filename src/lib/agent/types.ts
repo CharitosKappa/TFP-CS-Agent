@@ -1,3 +1,5 @@
+import type { InlineImage } from "../media/image";
+
 export const INTENTS = [
   "order_status",
   "returns_refunds",
@@ -47,7 +49,7 @@ export interface PromptContext {
   /** Email subject (often carries the order number, e.g. "Order43605"). */
   subject?: string;
   /** Image attachments from the customer's message, fed to the model (vision). */
-  images?: { mediaType: string; data: string }[];
+  images?: InlineImage[];
   /** Text summary of ALL attachments, so the agent never re-asks for sent files. */
   attachmentSummary?: string;
   shopifyContext?: string;

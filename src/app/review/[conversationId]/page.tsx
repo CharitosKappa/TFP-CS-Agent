@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Classification } from "@/lib/agent/types";
 import { getMessageAttachments, type GraphAttachment } from "@/lib/graph/messages";
+import { isImageAttachment } from "@/lib/media/image";
 import { getCustomerByEmail } from "@/lib/shopify/customers";
+import { fmtDate } from "@/lib/shopify/context";
 import { getOrderByName } from "@/lib/shopify/orders";
 import { getAuditLog, getConversationForReview } from "@/lib/review/queue";
 import {
@@ -38,7 +40,6 @@ async function safe<T>(p: Promise<T>): Promise<T | null> {
     return null;
   }
 }
-const isImage = (ct: string) => ct.toLowerCase().startsWith("image/");
 const fmtBytes = (n: number) =>
   n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 const dataUri = (a: GraphAttachment) => `data:${a.contentType};base64,${a.contentBytes}`;
@@ -64,15 +65,16 @@ export default async function ReviewDetailPage({
 
   // Right-sidebar context, fetched live (best-effort — a failure just hides a card).
   const inbound = conversation.messages.filter((m) => m.direction === "INBOUND");
-  const customer = conversation.customerEmail
-    ? await safe(getCustomerByEmail(conversation.customerEmail))
-    : null;
-  const order = classification?.orderNumber
-    ? await safe(getOrderByName(classification.orderNumber))
-    : null;
-  const attLists = await Promise.all(
-    inbound.map((m) => safe(getMessageAttachments(m.graphMessageId))),
-  );
+  // Independent lookups — fetch customer, order and attachments concurrently.
+  const [customer, order, attLists] = await Promise.all([
+    conversation.customerEmail
+      ? safe(getCustomerByEmail(conversation.customerEmail))
+      : Promise.resolve(null),
+    classification?.orderNumber
+      ? safe(getOrderByName(classification.orderNumber))
+      : Promise.resolve(null),
+    Promise.all(inbound.map((m) => safe(getMessageAttachments(m.graphMessageId)))),
+  ]);
   const attByMsg = new Map<string, GraphAttachment[]>();
   inbound.forEach((m, i) => {
     const a = (attLists[i] ?? []).filter((x) => x.contentBytes);
@@ -251,7 +253,7 @@ export default async function ReviewDetailPage({
                     <ul>
                       {customer.recentOrders.map((o) => (
                         <li key={o.name}>
-                          {o.name} · {o.createdAt.slice(0, 10)} · {o.fulfillmentStatus}
+                          {o.name} · {fmtDate(o.createdAt)} · {o.fulfillmentStatus}
                         </li>
                       ))}
                     </ul>
@@ -319,23 +321,26 @@ export default async function ReviewDetailPage({
               <>
                 <div className="media-grid">
                   {attachments
-                    .filter((a) => isImage(a.contentType))
-                    .map((a) => (
-                      <a
-                        key={a.id}
-                        href={dataUri(a)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="media-thumb"
-                        title={a.name}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={dataUri(a)} alt={a.name} />
-                      </a>
-                    ))}
+                    .filter(isImageAttachment)
+                    .map((a) => {
+                      const uri = dataUri(a);
+                      return (
+                        <a
+                          key={a.id}
+                          href={uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="media-thumb"
+                          title={a.name}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={uri} alt={a.name} />
+                        </a>
+                      );
+                    })}
                 </div>
                 {attachments
-                  .filter((a) => !isImage(a.contentType))
+                  .filter((a) => !isImageAttachment(a))
                   .map((a) => (
                     <a key={a.id} href={dataUri(a)} download={a.name} className="media-file">
                       📄 {a.name} <span className="muted">{fmtBytes(a.size)}</span>

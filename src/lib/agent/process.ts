@@ -3,6 +3,11 @@ import { prisma } from "../db";
 import { getMessageAttachments } from "../graph/messages";
 import { loadPolicies } from "../knowledge/policies";
 import { downscaleImage } from "../media/downscale";
+import {
+  isImageAttachment,
+  isSupportedImageType,
+  type InlineImage,
+} from "../media/image";
 import { errInfo, log } from "../observability/logger";
 import { gatherShopifyContext } from "../shopify/context";
 import { draftReplyForInbound } from "./pipeline";
@@ -13,12 +18,11 @@ const RECENT_LIMIT = 6;
 
 // Image attachments fed to the draft model (vision). Bounded for cost/limits.
 // Cap keeps base64 under Claude's ~5MB/image limit (3.5MB raw ≈ 4.6MB base64).
-const SUPPORTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 3_500_000;
 
 interface InboundMedia {
-  images: { mediaType: string; data: string }[];
+  images: InlineImage[];
   /** Text the model always sees, so it knows what was attached (even oversized/non-image). */
   summary?: string;
 }
@@ -33,15 +37,15 @@ async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> 
     const attachments = await getMessageAttachments(graphMessageId);
     if (!attachments.length) return { images: [] };
 
-    const imageAtts = attachments.filter((a) => a.contentType.toLowerCase().startsWith("image/"));
-    const fileAtts = attachments.filter((a) => !a.contentType.toLowerCase().startsWith("image/"));
+    const imageAtts = attachments.filter(isImageAttachment);
+    const fileAtts = attachments.filter((a) => !isImageAttachment(a));
 
-    const images: { mediaType: string; data: string }[] = [];
+    const images: InlineImage[] = [];
     for (const a of imageAtts) {
       if (images.length >= MAX_IMAGES) break;
       if (!a.contentBytes) continue;
       const ct = a.contentType.toLowerCase();
-      if (SUPPORTED_IMAGE_TYPES.includes(ct) && a.size <= MAX_IMAGE_BYTES) {
+      if (isSupportedImageType(ct) && a.size <= MAX_IMAGE_BYTES) {
         images.push({ mediaType: ct, data: a.contentBytes });
       } else {
         // Too large or an unsupported type → downscale/re-encode to a safe JPEG.
