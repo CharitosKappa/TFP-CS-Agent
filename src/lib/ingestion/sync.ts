@@ -1,7 +1,11 @@
 import { MessageDirection } from "@prisma/client";
 import { prisma } from "../db";
 import { getEnv } from "../env";
-import { fetchInboxMessages, fetchMessage } from "../graph/messages";
+import {
+  fetchInboxMessages,
+  fetchMessage,
+  messageHasImageAttachment,
+} from "../graph/messages";
 import type { GraphMessage, GraphRecipient } from "../graph/types";
 import { htmlToText, stripQuotedReply } from "./html";
 
@@ -66,6 +70,12 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
     return { conversationCreated: false, messageCreated: false, conversationId: conv.id };
   }
 
+  // Detect a real (non-inline) image attachment once, at ingest. Only when Graph
+  // reports attachments, and best-effort — a lookup failure must not block ingest.
+  const hasImageAttachment = msg.hasAttachments
+    ? await messageHasImageAttachment(msg.id).catch(() => false)
+    : false;
+
   await prisma.message.create({
     data: {
       conversationId: conv.id,
@@ -75,6 +85,7 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
       toEmails: toList.map((t) => t.email).filter(Boolean),
       bodyText: toBodyText(msg),
       receivedAt: new Date(msg.receivedDateTime),
+      hasImageAttachment,
     },
   });
 

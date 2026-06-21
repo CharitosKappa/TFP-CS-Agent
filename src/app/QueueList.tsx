@@ -109,7 +109,14 @@ export default function QueueList({
                 </div>
               </div>
 
-              <div className="queue-item-subject">{item.subject ?? "(χωρίς θέμα)"}</div>
+              <div className="queue-item-subject">
+                {item.hasImage && (
+                  <span title="Περιέχει εικόνα" aria-label="Περιέχει εικόνα">
+                    🖼️{" "}
+                  </span>
+                )}
+                {item.subject ?? "(χωρίς θέμα)"}
+              </div>
               {item.preview && <p className="queue-item-preview">{item.preview}…</p>}
 
               <div className="queue-item-meta">

@@ -78,6 +78,10 @@ model Message {
   // minimisation — see PRIVACY.md); bodyText is what the agent + reviewers use.
   bodyText       String
   receivedAt     DateTime
+  // True if this message carries a real (non-inline) image attachment. Set once
+  // at ingest so the review queue can flag image conversations without
+  // re-fetching attachments from Graph on every render.
+  hasImageAttachment Boolean      @default(false)
   createdAt      DateTime         @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

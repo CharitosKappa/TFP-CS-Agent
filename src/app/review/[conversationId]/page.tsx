@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Classification } from "@/lib/agent/types";
 import { getMessageAttachments, type GraphAttachment } from "@/lib/graph/messages";
-import { isSupportedImageType } from "@/lib/media/image";
+import { isImageAttachment, isSupportedImageType } from "@/lib/media/image";
 import { getCustomerByEmail } from "@/lib/shopify/customers";
 import { fmtDate } from "@/lib/shopify/context";
 import { getOrderByName } from "@/lib/shopify/orders";
@@ -116,9 +116,18 @@ export default async function ReviewDetailPage({
                     <span>
                       <span className="bubble-seq">#{conversation.ref}.{i + 1}</span>{" "}
                       {m.direction === "INBOUND" ? "Πελάτης" : "TFP"} · {m.fromEmail}
-                      {attByMsg.has(m.id) && (
-                        <span className="muted"> · 📎 {attByMsg.get(m.id)!.length}</span>
-                      )}
+                      {attByMsg.has(m.id) &&
+                        (() => {
+                          const atts = attByMsg.get(m.id)!;
+                          const images = atts.filter(isImageAttachment).length;
+                          const files = atts.length - images;
+                          return (
+                            <span className="muted">
+                              {images > 0 && <> · 🖼️ {images}</>}
+                              {files > 0 && <> · 📎 {files}</>}
+                            </span>
+                          );
+                        })()}
                     </span>
                     <span>{formatDateTime(m.receivedAt)}</span>
                   </div>

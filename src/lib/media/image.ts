@@ -23,3 +23,16 @@ export function isSupportedImageType(ct: string): ct is SupportedImageType {
 export function isImageAttachment(a: { contentType: string }): boolean {
   return a.contentType.toLowerCase().startsWith("image/");
 }
+
+/**
+ * An email "inline" (cid:) attachment this small is almost always a signature
+ * logo or tracking pixel, not customer content — those we want to ignore. But
+ * many mail clients embed a GENUINE customer photo inline too (isInline=true,
+ * often 1–5 MB), so we only treat *small* inline attachments as cruft and keep
+ * the large ones.
+ */
+export const INLINE_CRUFT_MAX_BYTES = 50_000;
+
+export function isInlineCruft(a: { isInline: boolean; size: number }): boolean {
+  return a.isInline && a.size <= INLINE_CRUFT_MAX_BYTES;
+}

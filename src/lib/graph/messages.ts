@@ -1,3 +1,4 @@
+import { isInlineCruft } from "../media/image";
 import { getEnv } from "../env";
 import { graphFetch } from "./client";
 import type { GraphListResponse, GraphMessage } from "./types";
@@ -15,6 +16,7 @@ const SELECT = [
   "bodyPreview",
   "receivedDateTime",
   "isRead",
+  "hasAttachments",
   "internetMessageId",
 ].join(",");
 
@@ -86,10 +88,10 @@ interface RawAttachment {
 /**
  * Fetches a message's file attachments on-demand (not stored — see PRIVACY.md).
  * Returns only genuine fileAttachments the customer attached (which carry
- * contentBytes). Item/reference attachments are skipped, and so are INLINE
- * attachments (email-signature logos, tracking pixels, body-embedded cid:
- * images): feeding those to the vision model or the Media panel would
- * misrepresent signature cruft as a customer photo.
+ * contentBytes). Item/reference attachments are skipped, and so is inline CRUFT
+ * (small cid: images — signature logos, tracking pixels). Large inline images
+ * are KEPT: many mail clients embed a real customer photo inline. See
+ * isInlineCruft.
  */
 export async function getMessageAttachments(
   graphMessageId: string,
@@ -100,7 +102,7 @@ export async function getMessageAttachments(
   const data = (await res.json()) as GraphListResponse<RawAttachment>;
   return data.value
     .filter((a) => (a["@odata.type"] ?? "").includes("fileAttachment"))
-    .filter((a) => !a.isInline)
+    .filter((a) => !isInlineCruft({ isInline: !!a.isInline, size: a.size ?? 0 }))
     .map((a) => ({
       id: a.id,
       name: a.name ?? "file",
@@ -110,6 +112,27 @@ export async function getMessageAttachments(
       contentId: a.contentId ?? null,
       contentBytes: a.contentBytes ?? null,
     }));
+}
+
+/**
+ * Cheap, metadata-only check (does NOT download contentBytes) for whether a
+ * message carries a real, non-inline image attachment. Used at ingest to set a
+ * flag the review queue can show without re-fetching attachments per render.
+ */
+export async function messageHasImageAttachment(graphMessageId: string): Promise<boolean> {
+  const res = await graphFetch(
+    `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}/attachments?${odata({
+      $select: "contentType,isInline,size",
+    })}`,
+  );
+  const data = (await res.json()) as GraphListResponse<RawAttachment>;
+  return data.value.some((a) => {
+    // @odata.type may be omitted under $select; fall back to the contentType.
+    const type = a["@odata.type"] ?? "";
+    const isFile = type === "" || type.includes("fileAttachment");
+    const isImage = (a.contentType ?? "").toLowerCase().startsWith("image/");
+    return isFile && isImage && !isInlineCruft({ isInline: !!a.isInline, size: a.size ?? 0 });
+  });
 }
 
 export interface SentReply {

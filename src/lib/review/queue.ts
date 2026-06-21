@@ -19,6 +19,8 @@ export interface QueueItem {
   /** When the triggering customer message arrived (falls back to draft time). */
   waitingSince: Date;
   preview: string;
+  /** The triggering customer message carries a real image attachment. */
+  hasImage: boolean;
 }
 
 function classificationOf(value: unknown): Classification | null {
@@ -60,6 +62,7 @@ export async function getReviewQueue(): Promise<QueueItem[]> {
       escalationReasons: d.escalationReasons,
       waitingSince: d.triggerMessage?.receivedAt ?? d.createdAt,
       preview: body.replace(/\s+/g, " ").trim().slice(0, 160),
+      hasImage: d.triggerMessage?.hasImageAttachment ?? false,
     };
   });
 
