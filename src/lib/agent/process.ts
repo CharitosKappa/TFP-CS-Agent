@@ -11,6 +11,7 @@ import {
 import { errInfo, log } from "../observability/logger";
 import { getRelatedConversations } from "../review/queue";
 import { gatherShopifyContext } from "../shopify/context";
+import { classifyEmail } from "./classify";
 import { draftReplyForInbound } from "./pipeline";
 import { updateCaseSummary } from "./summary";
 
@@ -85,8 +86,10 @@ async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> 
 }
 
 export interface ProcessResult {
-  draftId: string;
+  /** null when no reply was needed — the conversation was marked RESOLVED instead. */
+  draftId: string | null;
   escalated: boolean;
+  resolved: boolean;
 }
 
 export interface ProcessOptions {
@@ -97,6 +100,12 @@ export interface ProcessOptions {
    * set false on a re-draft so the same customer turn isn't counted twice.
    */
   updateSummary?: boolean;
+  /**
+   * Apply the "needs a reply?" gate (policy A): if the classifier judges the
+   * message is a pure closing/acknowledgment, mark the conversation RESOLVED and
+   * skip drafting. Only the automatic batch sets this; manual/redraft always draft.
+   */
+  applyClosingGate?: boolean;
 }
 
 /**
@@ -108,7 +117,7 @@ export async function processInboundMessage(
   messageId: string,
   opts: ProcessOptions = {},
 ): Promise<ProcessResult | null> {
-  const { reviewerGuidance, updateSummary = true } = opts;
+  const { reviewerGuidance, updateSummary = true, applyClosingGate = false } = opts;
   const message = await prisma.message.findUnique({
     where: { id: messageId },
     include: {
@@ -121,6 +130,32 @@ export async function processInboundMessage(
   if (message.direction !== "INBOUND") return null; // only draft replies to customers
 
   const conv = message.conversation;
+
+  // Classify first — it decides whether a reply is even needed.
+  const classification = await classifyEmail(message.bodyText, conv.subject ?? undefined);
+
+  // Policy A: a pure closing/acknowledgment needs no reply → mark the conversation
+  // RESOLVED and skip drafting. Only the automatic batch applies this gate; a
+  // reviewer-initiated redraft always drafts. RESOLVED auto-reopens on a new
+  // inbound message (see ingestion/sync.ts).
+  if (applyClosingGate && !classification.requiresReply) {
+    await prisma.$transaction(async (tx) => {
+      await tx.conversation.update({
+        where: { id: conv.id },
+        data: { status: "RESOLVED" },
+      });
+      await tx.auditLog.create({
+        data: {
+          conversationId: conv.id,
+          actor: "agent",
+          action: "marked_resolved",
+          detail: { reason: "no_reply_needed", intent: classification.intent },
+        },
+      });
+    });
+    log.info("conversation_resolved", { conversationId: conv.id, intent: classification.intent });
+    return { draftId: null, escalated: false, resolved: true };
+  }
 
   const recentMessages = conv.messages
     .filter((m) => m.id !== message.id && m.receivedAt <= message.receivedAt)
@@ -154,6 +189,7 @@ export async function processInboundMessage(
     attachmentSummary: media.summary,
     relatedContext,
     reviewerGuidance,
+    classification,
     gatherShopify: (c) =>
       gatherShopifyContext({
         orderNumber: c.orderNumber,
@@ -218,44 +254,63 @@ export async function processInboundMessage(
     intent: result.classification.intent,
   });
 
-  return { draftId: draft.id, escalated: result.redline.escalate };
+  return { draftId: draft.id, escalated: result.redline.escalate, resolved: false };
 }
 
 export interface BatchProcessResult {
+  /** Conversations that got a draft reply. */
   processed: number;
   escalated: number;
+  /** Conversations marked RESOLVED (last message needed no reply). */
+  resolved: number;
 }
 
-/** Drafts replies for inbound messages that don't yet have one. */
+/**
+ * Drafts replies for conversations AWAITING our reply — i.e. whose LATEST message
+ * is a customer (inbound) message that hasn't been drafted yet. Conversations
+ * whose last word is already ours, or already drafted, or CLOSED/RESOLVED, are
+ * skipped. A message the classifier judges needs no reply marks the conversation
+ * RESOLVED instead of drafting (policy A).
+ */
 export async function processNewInboundMessages(
   limit = 10,
 ): Promise<BatchProcessResult> {
-  const messages = await prisma.message.findMany({
-    where: {
-      direction: "INBOUND",
-      drafts: { none: {} },
-      conversation: { status: { notIn: ["CLOSED"] } },
+  // Candidate conversations, oldest-waiting first. Over-fetch, then keep only
+  // those whose latest message is an inbound, not-yet-drafted one.
+  const candidates = await prisma.conversation.findMany({
+    where: { status: { notIn: ["CLOSED", "RESOLVED"] } },
+    orderBy: { updatedAt: "asc" },
+    take: limit * 4,
+    select: {
+      messages: {
+        orderBy: { receivedAt: "desc" },
+        take: 1,
+        select: { id: true, direction: true, _count: { select: { drafts: true } } },
+      },
     },
-    orderBy: { receivedAt: "asc" },
-    take: limit,
-    select: { id: true },
   });
+  const messageIds = candidates
+    .map((c) => c.messages[0])
+    .filter((m) => m && m.direction === "INBOUND" && m._count.drafts === 0)
+    .slice(0, limit)
+    .map((m) => m!.id);
 
   const results: ProcessResult[] = [];
   let failed = 0;
-  for (const m of messages) {
+  for (const id of messageIds) {
     try {
-      const r = await processInboundMessage(m.id);
+      const r = await processInboundMessage(id, { applyClosingGate: true });
       if (r) results.push(r);
     } catch (e) {
       failed++;
-      log.error("draft_failed", { messageId: m.id, ...errInfo(e) });
+      log.error("draft_failed", { messageId: id, ...errInfo(e) });
     }
   }
 
   if (failed > 0) log.warn("draft_batch_partial_failure", { failed, ok: results.length });
   return {
-    processed: results.length,
+    processed: results.filter((r) => !r.resolved).length,
     escalated: results.filter((r) => r.escalated).length,
+    resolved: results.filter((r) => r.resolved).length,
   };
 }

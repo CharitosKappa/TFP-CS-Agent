@@ -26,6 +26,12 @@ export interface Classification {
   sentiment: "positive" | "neutral" | "negative";
   /** One-line summary of what the customer wants. */
   summary: string;
+  /**
+   * Whether this customer message actually needs a reply. false for a pure
+   * closing/acknowledgment ("ευχαριστώ", "εντάξει, όλα καλά") with no new
+   * request — those resolve the thread instead of drafting a reply.
+   */
+  requiresReply: boolean;
 }
 
 export interface RedLineVerdict {

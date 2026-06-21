@@ -15,6 +15,10 @@ enum ConversationStatus {
   AWAITING_REVIEW
   AWAITING_CUSTOMER
   ESCALATED
+  // The customer's last message needed no reply (e.g. a closing "thanks"); no
+  // draft generated. Surfaced for optional human close; auto-reopens on a new
+  // customer message.
+  RESOLVED
   CLOSED
 }
 

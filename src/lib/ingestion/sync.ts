@@ -136,6 +136,15 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
     },
   });
 
+  // Auto-reopen: a new customer message in a RESOLVED/CLOSED thread needs a fresh
+  // look. updateMany so it only fires when the status was actually terminal.
+  if (direction === MessageDirection.INBOUND) {
+    await prisma.conversation.updateMany({
+      where: { id: conv.id, status: { in: ["RESOLVED", "CLOSED"] } },
+      data: { status: "AWAITING_REVIEW" },
+    });
+  }
+
   return {
     conversationCreated: !existingConv,
     messageCreated: true,

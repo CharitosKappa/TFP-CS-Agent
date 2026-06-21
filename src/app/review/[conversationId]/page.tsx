@@ -22,6 +22,7 @@ export const dynamic = "force-dynamic";
 const AUDIT_ACTION_LABELS: Record<string, string> = {
   message_ingested: "Λήψη μηνύματος",
   draft_created: "Δημιουργία draft (agent)",
+  marked_resolved: "Επισημάνθηκε ως λυμένο (χωρίς απάντηση)",
   draft_approve: "Έγκριση",
   draft_edit: "Επεξεργασία & έγκριση",
   draft_reject: "Απόρριψη",

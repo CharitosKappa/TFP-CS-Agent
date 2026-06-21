@@ -23,6 +23,8 @@ export interface DraftReplyInput {
   reviewerGuidance?: string;
   /** Compact summaries of the same customer's other recent threads (context only). */
   relatedContext?: string;
+  /** Pre-computed classification — skips re-classifying when the caller already did. */
+  classification?: Classification;
   /**
    * Lazily fetches Shopify context once the message is classified — gets the
    * extracted orderNumber/email so we only query what the message is about.
@@ -37,7 +39,8 @@ export interface DraftReplyInput {
 export async function draftReplyForInbound(
   input: DraftReplyInput,
 ): Promise<DraftResult> {
-  const classification = await classifyEmail(input.incomingMessage, input.subject);
+  const classification =
+    input.classification ?? (await classifyEmail(input.incomingMessage, input.subject));
 
   let shopifyContext = input.shopifyContext;
   if (!shopifyContext && input.gatherShopify) {

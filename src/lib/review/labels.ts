@@ -18,6 +18,7 @@ export const CONVERSATION_STATUS_LABELS: Record<string, string> = {
   AWAITING_REVIEW: "Προς έλεγχο",
   AWAITING_CUSTOMER: "Αναμονή πελάτη",
   ESCALATED: "Σε άνθρωπο",
+  RESOLVED: "Λυμένο (χωρίς απάντηση)",
   CLOSED: "Κλειστό",
 };
 
