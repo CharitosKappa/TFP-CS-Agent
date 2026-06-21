@@ -9,6 +9,7 @@ import {
   type InlineImage,
 } from "../media/image";
 import { errInfo, log } from "../observability/logger";
+import { getRelatedConversations } from "../review/queue";
 import { gatherShopifyContext } from "../shopify/context";
 import { draftReplyForInbound } from "./pipeline";
 import { updateCaseSummary } from "./summary";
@@ -129,6 +130,20 @@ export async function processInboundMessage(
   const policies = await loadPolicies();
   const media = await fetchInboundMedia(message.graphMessageId);
 
+  // Cross-thread context: the same customer's other recent threads (e.g. ones
+  // they opened instead of replying here, or about the same order). Best-effort.
+  const relatedThreads = conv.customerEmail
+    ? await getRelatedConversations(conv.id, conv.customerEmail, conv.orderNumber).catch(() => [])
+    : [];
+  const relatedContext = relatedThreads.length
+    ? relatedThreads
+        .map(
+          (r) =>
+            `- #${r.ref} «${r.subject ?? ""}»${r.sameOrder ? " (ίδια παραγγελία)" : ""}: ${r.summary ?? "—"}`,
+        )
+        .join("\n")
+    : undefined;
+
   const result = await draftReplyForInbound({
     policies,
     caseSummary: conv.summary ?? "",
@@ -137,6 +152,7 @@ export async function processInboundMessage(
     subject: conv.subject ?? undefined,
     images: media.images,
     attachmentSummary: media.summary,
+    relatedContext,
     reviewerGuidance,
     gatherShopify: (c) =>
       gatherShopifyContext({

@@ -6,7 +6,7 @@ import { isImageAttachment, isSupportedImageType } from "@/lib/media/image";
 import { getCustomerByEmail } from "@/lib/shopify/customers";
 import { fmtDate } from "@/lib/shopify/context";
 import { getOrderByName } from "@/lib/shopify/orders";
-import { getAuditLog, getConversationForReview } from "@/lib/review/queue";
+import { getAuditLog, getConversationForReview, getRelatedConversations } from "@/lib/review/queue";
 import {
   CONVERSATION_STATUS_LABELS,
   DRAFT_STATUS_LABELS,
@@ -65,8 +65,8 @@ export default async function ReviewDetailPage({
 
   // Right-sidebar context, fetched live (best-effort — a failure just hides a card).
   const inbound = conversation.messages.filter((m) => m.direction === "INBOUND");
-  // Independent lookups — fetch customer, order and attachments concurrently.
-  const [customer, order, attLists] = await Promise.all([
+  // Independent lookups — fetch customer, order, attachments and related threads concurrently.
+  const [customer, order, attLists, related] = await Promise.all([
     conversation.customerEmail
       ? safe(getCustomerByEmail(conversation.customerEmail))
       : Promise.resolve(null),
@@ -74,7 +74,11 @@ export default async function ReviewDetailPage({
       ? safe(getOrderByName(classification.orderNumber))
       : Promise.resolve(null),
     Promise.all(inbound.map((m) => safe(getMessageAttachments(m.graphMessageId)))),
+    safe(
+      getRelatedConversations(conversationId, conversation.customerEmail, conversation.orderNumber),
+    ),
   ]);
+  const relatedThreads = related ?? [];
   const attByMsg = new Map<string, GraphAttachment[]>();
   inbound.forEach((m, i) => {
     const a = (attLists[i] ?? []).filter((x) => x.contentBytes);
@@ -273,6 +277,27 @@ export default async function ReviewDetailPage({
               <p className="muted side-empty">Δεν βρέθηκε στο Shopify με αυτό το email.</p>
             )}
           </div>
+
+          {relatedThreads.length > 0 && (
+            <div className="card side-card">
+              <h3>Άλλα threads πελάτη ({relatedThreads.length})</h3>
+              <ul className="related-list">
+                {relatedThreads.map((r) => (
+                  <li key={r.conversationId}>
+                    <Link href={`/review/${r.conversationId}`}>
+                      <span className="case-ref">#{r.ref}</span>{" "}
+                      {r.subject ?? "(χωρίς θέμα)"}
+                    </Link>
+                    <div className="related-meta muted">
+                      {CONVERSATION_STATUS_LABELS[r.status] ?? r.status} ·{" "}
+                      {formatDateTime(r.lastActivity)}
+                      {r.sameOrder && <span className="badge warn">ίδια παραγγελία</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {order && (
             <div className="card side-card">

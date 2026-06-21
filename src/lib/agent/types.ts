@@ -54,6 +54,12 @@ export interface PromptContext {
   attachmentSummary?: string;
   shopifyContext?: string;
   /**
+   * Compact summaries of the SAME customer's other recent threads (e.g. ones they
+   * opened instead of replying in-thread). Context only — the agent must answer
+   * the current thread, not conflate them.
+   */
+  relatedContext?: string;
+  /**
    * Guidance from a human reviewer who rejected the previous draft. Fed back
    * into the prompt so the regenerated draft corrects the flagged issue.
    */

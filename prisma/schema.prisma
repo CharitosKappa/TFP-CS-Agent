@@ -53,6 +53,10 @@ model Conversation {
   customerEmail       String
   customerName        String?
   status              ConversationStatus @default(NEW)
+  // Denormalised order number (e.g. "45493") for linking threads about the same
+  // order — even when the customer opens a new thread instead of replying. Set
+  // from the subject at ingest and refined by the classifier when drafting.
+  orderNumber         String?
   // Rolling, compact case summary — the bounded-context state.
   // Updated incrementally after each turn so follow-ups stay cheap.
   summary             String?
@@ -65,6 +69,7 @@ model Conversation {
 
   @@index([customerEmail])
   @@index([status])
+  @@index([orderNumber])
 }
 
 model Message {

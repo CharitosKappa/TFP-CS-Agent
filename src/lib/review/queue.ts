@@ -1,4 +1,5 @@
 // Read-side queries for the review dashboard.
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { Classification } from "@/lib/agent/types";
 
@@ -121,6 +122,63 @@ export async function getConversationForReview(conversationId: string) {
       },
     },
   });
+}
+
+/** How far back to look for a customer's other threads. */
+const RELATED_WINDOW_DAYS = 30;
+
+export interface RelatedConversation {
+  conversationId: string;
+  ref: number;
+  subject: string | null;
+  status: string;
+  lastActivity: Date;
+  /** Rolling summary — fed to the agent as cross-thread context. */
+  summary: string | null;
+  /** Shares the current conversation's order number. */
+  sameOrder: boolean;
+}
+
+/**
+ * Other recent conversations from the same customer (or about the same order),
+ * within RELATED_WINDOW_DAYS, self excluded. Surfaces threads a customer opened
+ * as new instead of replying in-thread — for the reviewer panel and as
+ * cross-thread context for the agent.
+ */
+export async function getRelatedConversations(
+  conversationId: string,
+  customerEmail: string,
+  orderNumber: string | null,
+): Promise<RelatedConversation[]> {
+  const or: Prisma.ConversationWhereInput[] = [];
+  if (customerEmail) or.push({ customerEmail });
+  if (orderNumber) or.push({ orderNumber });
+  if (!or.length) return [];
+
+  const cutoff = new Date(Date.now() - RELATED_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const rows = await prisma.conversation.findMany({
+    where: { id: { not: conversationId }, updatedAt: { gte: cutoff }, OR: or },
+    orderBy: { updatedAt: "desc" },
+    take: 10,
+    select: {
+      id: true,
+      ref: true,
+      subject: true,
+      status: true,
+      updatedAt: true,
+      summary: true,
+      orderNumber: true,
+    },
+  });
+  return rows.map((r) => ({
+    conversationId: r.id,
+    ref: r.ref,
+    subject: r.subject,
+    status: r.status,
+    lastActivity: r.updatedAt,
+    summary: r.summary,
+    sameOrder: !!orderNumber && r.orderNumber === orderNumber,
+  }));
 }
 
 export async function getAuditLog(conversationId: string) {

@@ -19,6 +19,12 @@ function addr(r?: GraphRecipient | null): { email: string; name: string | null }
   };
 }
 
+/** Best-effort order number from a subject, e.g. "Order #45493" → "45493". */
+function extractOrderNumber(subject: string | null | undefined): string | null {
+  const m = (subject ?? "").match(/#\s*(\d{3,})/);
+  return m ? m[1] : null;
+}
+
 function toBodyText(msg: GraphMessage): string {
   const raw = msg.body?.content ?? msg.bodyPreview ?? "";
   const isHtml = (msg.body?.contentType ?? "").toLowerCase() === "html";
@@ -74,6 +80,7 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
     select: { id: true },
   });
 
+  const orderNumber = extractOrderNumber(msg.subject);
   const conv = await prisma.conversation.upsert({
     where: { graphConversationId: msg.conversationId },
     create: {
@@ -81,11 +88,14 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
       subject: msg.subject ?? null,
       customerEmail: customer.email,
       customerName: customer.name,
+      orderNumber,
       status: "NEW",
     },
     update: {
       customerEmail: customer.email || undefined,
       customerName: customer.name ?? undefined,
+      // Don't clobber a known order number with a subject that lacks one.
+      orderNumber: orderNumber ?? undefined,
     },
   });
 
