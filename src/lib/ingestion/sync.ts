@@ -10,6 +10,7 @@ import {
 } from "../graph/messages";
 import type { GraphMessage, GraphRecipient } from "../graph/types";
 import { errInfo, log } from "../observability/logger";
+import { isShopifyContactForm, parseShopifyContactForm } from "./contact-form";
 import { htmlToText, stripQuotedReply } from "./html";
 
 function addr(r?: GraphRecipient | null): { email: string; name: string | null } {
@@ -60,8 +61,18 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
   const direction = isInternal(from.email)
     ? MessageDirection.OUTBOUND
     : MessageDirection.INBOUND;
-  const customer =
-    [from, ...toList].find((p) => p.email && !isInternal(p.email)) ?? { email: "", name: null };
+
+  // Shopify contact-form notifications come FROM a Shopify mailer with the real
+  // customer + message in the body — attribute the conversation to the customer.
+  const rawBody = toBodyText(msg);
+  const contact = isShopifyContactForm(from.email, rawBody)
+    ? parseShopifyContactForm(rawBody)
+    : null;
+  const senderEmail = contact ? contact.email : from.email;
+  const bodyText = contact ? contact.message : rawBody;
+  const customer = contact
+    ? { email: contact.email, name: contact.name }
+    : [from, ...toList].find((p) => p.email && !isInternal(p.email)) ?? { email: "", name: null };
 
   const existingConv = await prisma.conversation.findUnique({
     where: { graphConversationId: msg.conversationId },
@@ -80,7 +91,8 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
     select: { id: true },
   });
 
-  const orderNumber = extractOrderNumber(msg.subject);
+  // Order number from the subject, or (for contact-form/body-only cases) the message.
+  const orderNumber = extractOrderNumber(msg.subject) ?? extractOrderNumber(bodyText);
   const conv = await prisma.conversation.upsert({
     where: { graphConversationId: msg.conversationId },
     create: {
@@ -119,9 +131,9 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
       graphMessageId: msg.id,
       internetMessageId: msg.internetMessageId ?? null,
       direction,
-      fromEmail: from.email,
+      fromEmail: senderEmail,
       toEmails: toList.map((t) => t.email).filter(Boolean),
-      bodyText: toBodyText(msg),
+      bodyText,
       receivedAt: new Date(msg.receivedDateTime),
       hasImageAttachment,
     },
