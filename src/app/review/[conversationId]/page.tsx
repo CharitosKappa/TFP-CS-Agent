@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Classification } from "@/lib/agent/types";
 import { getMessageAttachments, type GraphAttachment } from "@/lib/graph/messages";
-import { isImageAttachment } from "@/lib/media/image";
+import { isSupportedImageType } from "@/lib/media/image";
 import { getCustomerByEmail } from "@/lib/shopify/customers";
 import { fmtDate } from "@/lib/shopify/context";
 import { getOrderByName } from "@/lib/shopify/orders";
@@ -304,9 +304,20 @@ export default async function ReviewDetailPage({
                   <ul>
                     {order.trackings
                       .filter((t) => t.number || t.url)
-                      .map((t, i) => (
-                        <li key={i}>{[t.company, t.number].filter(Boolean).join(" ")}</li>
-                      ))}
+                      .map((t, i) => {
+                        const label = [t.company, t.number].filter(Boolean).join(" ");
+                        return (
+                          <li key={i}>
+                            {t.url ? (
+                              <a href={t.url} target="_blank" rel="noopener noreferrer">
+                                {label || "Παρακολούθηση αποστολής"}
+                              </a>
+                            ) : (
+                              label
+                            )}
+                          </li>
+                        );
+                      })}
                   </ul>
                 </div>
               )}
@@ -321,7 +332,7 @@ export default async function ReviewDetailPage({
               <>
                 <div className="media-grid">
                   {attachments
-                    .filter(isImageAttachment)
+                    .filter((a) => isSupportedImageType(a.contentType))
                     .map((a) => {
                       const uri = dataUri(a);
                       return (
@@ -334,13 +345,13 @@ export default async function ReviewDetailPage({
                           title={a.name}
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={uri} alt={a.name} />
+                          <img src={uri} alt={a.name} loading="lazy" decoding="async" />
                         </a>
                       );
                     })}
                 </div>
                 {attachments
-                  .filter((a) => !isImageAttachment(a))
+                  .filter((a) => !isSupportedImageType(a.contentType))
                   .map((a) => (
                     <a key={a.id} href={dataUri(a)} download={a.name} className="media-file">
                       📄 {a.name} <span className="muted">{fmtBytes(a.size)}</span>

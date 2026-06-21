@@ -45,7 +45,11 @@ async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> 
       if (images.length >= MAX_IMAGES) break;
       if (!a.contentBytes) continue;
       const ct = a.contentType.toLowerCase();
-      if (isSupportedImageType(ct) && a.size <= MAX_IMAGE_BYTES) {
+      // Trust the bytes we actually hold, not Graph's reported `size` — it can
+      // be missing (defaulted to 0), which would let an oversized image through
+      // un-downscaled and trip Claude's per-image limit (a 400 that kills the draft).
+      const rawBytes = Math.floor((a.contentBytes.length * 3) / 4);
+      if (isSupportedImageType(ct) && rawBytes <= MAX_IMAGE_BYTES) {
         images.push({ mediaType: ct, data: a.contentBytes });
       } else {
         // Too large or an unsupported type → downscale/re-encode to a safe JPEG.
@@ -57,11 +61,20 @@ async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> 
     const parts: string[] = [];
     if (imageAtts.length) parts.push(`${imageAtts.length} εικόνα(ες)`);
     if (fileAtts.length) parts.push(`${fileAtts.length} αρχείο(α)`);
-    let summary = `Ο πελάτης ΕΧΕΙ ΕΠΙΣΥΝΑΨΕΙ ${parts.join(" + ")}: ${attachments
-      .map((a) => a.name)
-      .join(", ")}. ΜΗΝ ζητήσεις ξανά αρχεία/φωτογραφίες που έχουν ήδη σταλεί.`;
-    if (imageAtts.length > images.length) {
-      summary += ` (${images.length} εικόνα(ες) εμφανίζονται παρακάτω· οι υπόλοιπες παραλείφθηκαν λόγω μεγέθους αλλά υπάρχουν στο email.)`;
+    const names = attachments.map((a) => a.name).join(", ");
+    // Images the customer attached but we could NOT show the model (over the
+    // count cap, missing bytes, unsupported type, or a failed downscale).
+    const hidden = imageAtts.length - images.length;
+
+    let summary = `Ο πελάτης ΕΧΕΙ ΕΠΙΣΥΝΑΨΕΙ ${parts.join(" + ")}: ${names}. Μην πεις στον πελάτη ότι δεν έλαβες αρχεία.`;
+    if (images.length) {
+      summary += ` ${images.length} από τις εικόνες εμφανίζονται παρακάτω ώστε να τις δεις — μην τις ξαναζητήσεις.`;
+    }
+    if (hidden > 0) {
+      summary += ` ${hidden} εικόνα(ες) εστάλησαν αλλά ΔΕΝ εμφανίζονται εδώ (π.χ. μη υποστηριζόμενος τύπος, πολύ μεγάλο αρχείο ή πάνω από το όριο εικόνων)· αν χρειάζεσαι το περιεχόμενό τους για να απαντήσεις, ζήτησε ευγενικά από τον πελάτη να τις ξαναστείλει σε μορφή JPG/PNG.`;
+    }
+    if (fileAtts.length) {
+      summary += ` Τα μη-εικονικά αρχεία (${fileAtts.length}) δεν εμφανίζονται εδώ αλλά έχουν ληφθεί και θα τα ελέγξει ο συνεργάτης — μην τα ξαναζητήσεις.`;
     }
     return { images, summary };
   } catch (e) {

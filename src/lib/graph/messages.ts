@@ -85,8 +85,11 @@ interface RawAttachment {
 
 /**
  * Fetches a message's file attachments on-demand (not stored — see PRIVACY.md).
- * Returns only fileAttachments (which carry contentBytes); item/reference
- * attachments are skipped.
+ * Returns only genuine fileAttachments the customer attached (which carry
+ * contentBytes). Item/reference attachments are skipped, and so are INLINE
+ * attachments (email-signature logos, tracking pixels, body-embedded cid:
+ * images): feeding those to the vision model or the Media panel would
+ * misrepresent signature cruft as a customer photo.
  */
 export async function getMessageAttachments(
   graphMessageId: string,
@@ -97,6 +100,7 @@ export async function getMessageAttachments(
   const data = (await res.json()) as GraphListResponse<RawAttachment>;
   return data.value
     .filter((a) => (a["@odata.type"] ?? "").includes("fileAttachment"))
+    .filter((a) => !a.isInline)
     .map((a) => ({
       id: a.id,
       name: a.name ?? "file",
