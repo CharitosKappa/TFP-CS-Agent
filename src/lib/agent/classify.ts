@@ -21,9 +21,13 @@ const ClassificationSchema = z.object({
   intent: z.enum(INTENTS),
   confidence: z.number().min(0).max(1),
   language: z.string().default("el"),
-  orderNumber: z.string().optional(),
-  customerEmail: z.string().email().optional(),
-  couponCode: z.string().optional(),
+  // The triage model sometimes emits null / "" / a malformed value for an absent
+  // optional field instead of omitting it. `.catch(undefined)` treats any such
+  // per-field hiccup as "not present" so it never fails the whole classification
+  // (which would needlessly drop us to the escalate-everything fallback).
+  orderNumber: z.string().optional().catch(undefined),
+  customerEmail: z.string().email().optional().catch(undefined),
+  couponCode: z.string().optional().catch(undefined),
   sentiment: z.enum(["positive", "neutral", "negative"]),
   summary: z.string(),
 });
