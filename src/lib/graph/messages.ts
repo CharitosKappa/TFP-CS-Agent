@@ -16,7 +16,6 @@ const SELECT = [
   "bodyPreview",
   "receivedDateTime",
   "isRead",
-  "hasAttachments",
   "internetMessageId",
 ].join(",");
 

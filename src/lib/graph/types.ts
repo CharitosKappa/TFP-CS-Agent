@@ -18,7 +18,6 @@ export interface GraphMessage {
   bodyPreview?: string | null;
   receivedDateTime: string;
   isRead?: boolean;
-  hasAttachments?: boolean | null;
   internetMessageId?: string | null;
 }
 

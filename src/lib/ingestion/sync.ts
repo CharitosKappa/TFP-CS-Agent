@@ -70,11 +70,15 @@ export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResul
     return { conversationCreated: false, messageCreated: false, conversationId: conv.id };
   }
 
-  // Detect a real (non-inline) image attachment once, at ingest. Only when Graph
-  // reports attachments, and best-effort — a lookup failure must not block ingest.
-  const hasImageAttachment = msg.hasAttachments
-    ? await messageHasImageAttachment(msg.id).catch(() => false)
-    : false;
+  // Detect a real image attachment once, at ingest (best-effort — a lookup
+  // failure must not block ingest). We check EVERY inbound message rather than
+  // gating on Graph's `hasAttachments`, because that flag is false when a
+  // message's only images are INLINE (cid:) — exactly the customer photos we
+  // care about (e.g. mobile clients embed the photo in the body).
+  const hasImageAttachment =
+    direction === MessageDirection.INBOUND
+      ? await messageHasImageAttachment(msg.id).catch(() => false)
+      : false;
 
   await prisma.message.create({
     data: {
