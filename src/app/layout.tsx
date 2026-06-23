@@ -25,6 +25,7 @@ export default async function RootLayout({
           </Link>
           <nav className="topnav">
             <Link href="/">Ουρά ελέγχου</Link>
+            <Link href="/conversations">Όλες οι συνομιλίες</Link>
             {email ? (
               <>
                 <span className="muted">{email}</span>

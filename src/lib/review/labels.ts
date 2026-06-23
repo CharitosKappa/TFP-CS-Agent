@@ -66,6 +66,25 @@ export function sentimentBadgeClass(sentiment: string | null | undefined): strin
   return "badge neutral";
 }
 
+export function conversationStatusLabel(status: string | null | undefined): string {
+  if (!status) return "—";
+  return CONVERSATION_STATUS_LABELS[status] ?? status;
+}
+
+export function conversationStatusBadgeClass(status: string): string {
+  switch (status) {
+    case "ESCALATED":
+      return "badge danger";
+    case "AWAITING_REVIEW":
+      return "badge warn";
+    case "RESOLVED":
+    case "CLOSED":
+      return "badge ok";
+    default:
+      return "badge neutral";
+  }
+}
+
 const RTF = new Intl.RelativeTimeFormat("el", { numeric: "auto" });
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 31536000],

@@ -80,6 +80,72 @@ export async function getQueueCount(): Promise<number> {
   });
 }
 
+export interface ConversationListItem {
+  conversationId: string;
+  ref: number;
+  subject: string | null;
+  customerEmail: string;
+  customerName: string | null;
+  status: string;
+  orderNumber: string | null;
+  /** Time of the latest message (falls back to the conversation's updatedAt). */
+  lastActivity: Date;
+  messageCount: number;
+  latestDirection: string | null;
+  preview: string;
+  /** From the latest draft's classification, if any. */
+  intent: string | null;
+  isEscalated: boolean;
+  /** Status of the latest draft, or null if none was ever generated. */
+  draftStatus: string | null;
+}
+
+/**
+ * Every ingested conversation, newest-activity first — for the "all
+ * conversations" browser. Unlike getReviewQueue (drafts only), this also
+ * surfaces threads with no pending draft (already answered, RESOLVED,
+ * automated), each tagged with its status. Read-only.
+ */
+export async function getAllConversations(): Promise<ConversationListItem[]> {
+  const rows = await prisma.conversation.findMany({
+    orderBy: { updatedAt: "desc" },
+    include: {
+      messages: {
+        orderBy: { receivedAt: "desc" },
+        take: 1,
+        select: { bodyText: true, receivedAt: true, direction: true },
+      },
+      drafts: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { status: true, isEscalated: true, classification: true },
+      },
+      _count: { select: { messages: true } },
+    },
+  });
+  return rows.map((c): ConversationListItem => {
+    const latest = c.messages[0];
+    const draft = c.drafts[0];
+    const cls = classificationOf(draft?.classification);
+    return {
+      conversationId: c.id,
+      ref: c.ref,
+      subject: c.subject,
+      customerEmail: c.customerEmail,
+      customerName: c.customerName,
+      status: c.status,
+      orderNumber: c.orderNumber,
+      lastActivity: latest?.receivedAt ?? c.updatedAt,
+      messageCount: c._count.messages,
+      latestDirection: latest?.direction ?? null,
+      preview: (latest?.bodyText ?? "").replace(/\s+/g, " ").trim().slice(0, 160),
+      intent: cls?.intent ?? null,
+      isEscalated: draft?.isEscalated ?? false,
+      draftStatus: draft?.status ?? null,
+    };
+  });
+}
+
 export interface StuckSend {
   conversationId: string;
   ref: number;
