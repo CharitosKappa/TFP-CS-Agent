@@ -47,7 +47,13 @@ export function htmlToText(html: string): string {
   // Separate table cells so a row's columns don't run together (trailing tabs are
   // cleaned with the other whitespace below).
   s = s.replace(/<\/(td|th)>/gi, "\t");
-  s = s.replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n");
+  // Line-level breaks (within a list/table) → single newline.
+  s = s.replace(/<\/(li|tr)>/gi, "\n");
+  // Block/paragraph elements → blank line, so paragraphs stay visually separated.
+  // Outlook/webmail wrap each paragraph in its own <div> and rely on CSS margins
+  // for spacing; a single \n would make them run together. The \n{3,}→\n\n cleanup
+  // below caps the runs produced by empty blocks (e.g. <div><br></div>).
+  s = s.replace(/<\/(p|div|h[1-6]|ul|ol|blockquote|table)>/gi, "\n\n");
   s = s.replace(/<li[^>]*>/gi, "• ");
   s = s.replace(/<[^>]+>/g, "");
   s = decodeEntities(s);
