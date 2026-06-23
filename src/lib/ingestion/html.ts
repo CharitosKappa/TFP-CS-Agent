@@ -47,13 +47,15 @@ export function htmlToText(html: string): string {
   // Separate table cells so a row's columns don't run together (trailing tabs are
   // cleaned with the other whitespace below).
   s = s.replace(/<\/(td|th)>/gi, "\t");
-  // Line-level breaks (within a list/table) → single newline.
-  s = s.replace(/<\/(li|tr)>/gi, "\n");
-  // Block/paragraph elements → blank line, so paragraphs stay visually separated.
-  // Outlook/webmail wrap each paragraph in its own <div> and rely on CSS margins
-  // for spacing; a single \n would make them run together. The \n{3,}→\n\n cleanup
-  // below caps the runs produced by empty blocks (e.g. <div><br></div>).
-  s = s.replace(/<\/(p|div|h[1-6]|ul|ol|blockquote|table)>/gi, "\n\n");
+  // Paragraph break (blank line) ONLY where the source signals one: a block that
+  // carries a non-zero top/bottom margin (Outlook/webmail space real paragraphs
+  // via CSS margins), or a semantic <p>/<h*>. A plain <div> is a soft line break —
+  // Outlook wraps each line (incl. signatures) in its own <div>, and we want those
+  // tight, like Shift+Enter. Empty blocks (<div><br></div>) still produce a blank
+  // line via the <br> above; the \n{3,}→\n\n cleanup caps the runs.
+  s = s.replace(/<(?:div|p)\b[^>]*\bmargin-(?:top|bottom)\s*:\s*[1-9][^>]*>/gi, "\n\n");
+  s = s.replace(/<\/(p|h[1-6])>/gi, "\n\n");
+  s = s.replace(/<\/(div|li|tr|ul|ol|blockquote|table)>/gi, "\n");
   s = s.replace(/<li[^>]*>/gi, "• ");
   s = s.replace(/<[^>]+>/g, "");
   s = decodeEntities(s);
