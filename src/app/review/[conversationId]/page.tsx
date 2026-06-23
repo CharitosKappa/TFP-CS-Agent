@@ -96,14 +96,16 @@ export default async function ReviewDetailPage({
       <div className="page-head">
         <h1>
           <span className="case-ref">#{conversation.ref}</span>{" "}
-          {conversation.customerName ?? conversation.customerEmail}
+          {conversation.subject ?? "(χωρίς θέμα)"}
         </h1>
         <span className="badge neutral">
           {CONVERSATION_STATUS_LABELS[conversation.status] ?? conversation.status}
         </span>
       </div>
-      <p className="muted" style={{ marginTop: "-12px" }}>
-        {conversation.subject ?? "(χωρίς θέμα)"} · {conversation.customerEmail}
+      <p className="muted" style={{ marginTop: "-12px", fontSize: "0.9rem" }}>
+        {conversation.customerName
+          ? `${conversation.customerName} · ${conversation.customerEmail}`
+          : conversation.customerEmail}
       </p>
 
       <div className="detail-layout">
