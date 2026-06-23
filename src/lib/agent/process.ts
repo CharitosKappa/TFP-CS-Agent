@@ -5,7 +5,7 @@ import { loadPolicies } from "../knowledge/policies";
 import { downscaleImage } from "../media/downscale";
 import {
   isImageAttachment,
-  isSupportedImageType,
+  sniffImageType,
   type InlineImage,
 } from "../media/image";
 import { errInfo, log } from "../observability/logger";
@@ -46,15 +46,21 @@ async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> 
     for (const a of imageAtts) {
       if (images.length >= MAX_IMAGES) break;
       if (!a.contentBytes) continue;
-      const ct = a.contentType.toLowerCase();
+      // Trust the actual bytes, not Graph's declared contentType: a mislabeled
+      // image (e.g. a PNG content type on JPEG bytes) makes Claude reject the
+      // whole request with a 400 that kills the draft. Sniff the real type from
+      // the magic bytes; anything we can't positively identify as a supported
+      // type falls through to the re-encode path below.
+      const sniffed = sniffImageType(a.contentBytes);
       // Trust the bytes we actually hold, not Graph's reported `size` — it can
       // be missing (defaulted to 0), which would let an oversized image through
       // un-downscaled and trip Claude's per-image limit (a 400 that kills the draft).
       const rawBytes = Math.floor((a.contentBytes.length * 3) / 4);
-      if (isSupportedImageType(ct) && rawBytes <= MAX_IMAGE_BYTES) {
-        images.push({ mediaType: ct, data: a.contentBytes });
+      if (sniffed && rawBytes <= MAX_IMAGE_BYTES) {
+        images.push({ mediaType: sniffed, data: a.contentBytes });
       } else {
-        // Too large or an unsupported type → downscale/re-encode to a safe JPEG.
+        // Too large, or a type we couldn't positively identify → downscale/
+        // re-encode to a safe JPEG.
         const ds = await downscaleImage(a.contentBytes);
         if (ds) images.push(ds);
       }
