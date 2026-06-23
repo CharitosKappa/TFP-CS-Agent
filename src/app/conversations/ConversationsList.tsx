@@ -13,6 +13,9 @@ import {
 
 const ts = (d: Date | string) => new Date(d).getTime();
 
+// Tag for threads we started that have no customer message yet.
+const OUTBOUND_ONLY_LABEL = "Δική μας έναρξη";
+
 // Stable, meaningful order for the status filter (only those actually present
 // are shown).
 const STATUS_ORDER = [
@@ -33,6 +36,7 @@ export default function ConversationsList({
 }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
+  const [participation, setParticipation] = useState("all");
   const [sort, setSort] = useState("newest");
   const now = new Date(nowMs);
 
@@ -46,6 +50,8 @@ export default function ConversationsList({
     // filter() returns a fresh array, so sorting it in place is safe.
     const r = items.filter((i) => {
       if (status !== "all" && i.status !== status) return false;
+      if (participation === "outbound" && !i.outboundOnly) return false;
+      if (participation === "withCustomer" && i.outboundOnly) return false;
       if (term) {
         const hay =
           `#${i.ref} ${i.customerName ?? ""} ${i.customerEmail} ${i.subject ?? ""} ${i.preview} ${i.orderNumber ?? ""}`.toLowerCase();
@@ -55,7 +61,7 @@ export default function ConversationsList({
     });
     if (sort === "oldest") return r.sort((a, b) => ts(a.lastActivity) - ts(b.lastActivity));
     return r.sort((a, b) => ts(b.lastActivity) - ts(a.lastActivity));
-  }, [items, q, status, sort]);
+  }, [items, q, status, participation, sort]);
 
   return (
     <>
@@ -74,6 +80,11 @@ export default function ConversationsList({
               {conversationStatusLabel(s)}
             </option>
           ))}
+        </select>
+        <select value={participation} onChange={(e) => setParticipation(e.target.value)}>
+          <option value="all">Όλες οι συμμετοχές</option>
+          <option value="outbound">{OUTBOUND_ONLY_LABEL}</option>
+          <option value="withCustomer">Με συμμετοχή πελάτη</option>
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="newest">Ταξ.: Νεότερα</option>
@@ -114,6 +125,7 @@ export default function ConversationsList({
                 <span className={conversationStatusBadgeClass(item.status)}>
                   {conversationStatusLabel(item.status)}
                 </span>
+                {item.outboundOnly && <span className="badge info">{OUTBOUND_ONLY_LABEL}</span>}
                 {item.intent && <span className="badge">{intentLabel(item.intent)}</span>}
                 {item.draftStatus && (
                   <span className="badge neutral">

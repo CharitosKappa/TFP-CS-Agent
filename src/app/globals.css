@@ -241,6 +241,10 @@ main {
   background: var(--danger-soft);
   color: var(--danger);
 }
+.badge.info {
+  background: rgba(59, 91, 173, 0.12);
+  color: #3b5bad;
+}
 
 /* ── Thread ────────────────────────────────────────────────────────── */
 .thread {

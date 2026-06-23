@@ -98,6 +98,8 @@ export interface ConversationListItem {
   isEscalated: boolean;
   /** Status of the latest draft, or null if none was ever generated. */
   draftStatus: string | null;
+  /** True if every message is OUTBOUND — a thread we started, no customer reply yet. */
+  outboundOnly: boolean;
 }
 
 /**
@@ -123,6 +125,19 @@ export async function getAllConversations(): Promise<ConversationListItem[]> {
       _count: { select: { messages: true } },
     },
   });
+
+  // Conversation ids with at least one INBOUND (customer) message; anything not
+  // here is "outbound-only" — a thread we started with no customer reply yet.
+  const withInbound = new Set(
+    (
+      await prisma.message.findMany({
+        where: { direction: "INBOUND" },
+        select: { conversationId: true },
+        distinct: ["conversationId"],
+      })
+    ).map((m) => m.conversationId),
+  );
+
   return rows.map((c): ConversationListItem => {
     const latest = c.messages[0];
     const draft = c.drafts[0];
@@ -142,6 +157,7 @@ export async function getAllConversations(): Promise<ConversationListItem[]> {
       intent: cls?.intent ?? null,
       isEscalated: draft?.isEscalated ?? false,
       draftStatus: draft?.status ?? null,
+      outboundOnly: c._count.messages > 0 && !withInbound.has(c.id),
     };
   });
 }
