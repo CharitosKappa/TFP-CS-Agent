@@ -162,6 +162,65 @@ export async function getAllConversations(): Promise<ConversationListItem[]> {
   });
 }
 
+export interface FollowUpItem {
+  conversationId: string;
+  ref: number;
+  subject: string | null;
+  customerEmail: string;
+  customerName: string | null;
+  orderNumber: string | null;
+  /** When we sent the holding reply (latest message) — the promise clock. */
+  since: Date;
+  /** Preview of the holding reply we sent. */
+  preview: string;
+  intent: string | null;
+}
+
+/**
+ * Open follow-up obligations: conversations where we sent a "we'll get back to
+ * you" reply (status AWAITING_FOLLOWUP) and a human still owes the customer the
+ * actual answer. Oldest promise first so nothing is forgotten.
+ */
+export async function getOpenFollowUps(): Promise<FollowUpItem[]> {
+  const rows = await prisma.conversation.findMany({
+    where: { status: "AWAITING_FOLLOWUP" },
+    include: {
+      messages: {
+        orderBy: { receivedAt: "desc" },
+        take: 1,
+        select: { bodyText: true, receivedAt: true },
+      },
+      drafts: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { classification: true },
+      },
+    },
+  });
+
+  const items = rows.map((c): FollowUpItem => {
+    const latest = c.messages[0];
+    const cls = classificationOf(c.drafts[0]?.classification);
+    return {
+      conversationId: c.id,
+      ref: c.ref,
+      subject: c.subject,
+      customerEmail: c.customerEmail,
+      customerName: c.customerName,
+      orderNumber: c.orderNumber,
+      since: latest?.receivedAt ?? c.updatedAt,
+      preview: (latest?.bodyText ?? "").replace(/\s+/g, " ").trim().slice(0, 160),
+      intent: cls?.intent ?? null,
+    };
+  });
+
+  return items.sort((a, b) => a.since.getTime() - b.since.getTime());
+}
+
+export async function getFollowUpCount(): Promise<number> {
+  return prisma.conversation.count({ where: { status: "AWAITING_FOLLOWUP" } });
+}
+
 export interface StuckSend {
   conversationId: string;
   ref: number;

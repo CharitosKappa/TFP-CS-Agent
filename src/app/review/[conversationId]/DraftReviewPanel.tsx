@@ -17,6 +17,8 @@ interface Props {
   status: string;
   /** Red-line draft: sending requires an override reason. */
   isEscalated: boolean;
+  /** Agent's suggestion that this reply promises a follow-up from us. */
+  promisesFollowUp: boolean;
 }
 
 export default function DraftReviewPanel({
@@ -24,11 +26,13 @@ export default function DraftReviewPanel({
   initialContent,
   status,
   isEscalated,
+  promisesFollowUp,
 }: Props) {
   const router = useRouter();
   const [content, setContent] = useState(initialContent);
   const [note, setNote] = useState("");
   const [override, setOverride] = useState("");
+  const [followUp, setFollowUp] = useState(promisesFollowUp);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -124,6 +128,17 @@ export default function DraftReviewPanel({
 
       {overrideField}
 
+      <label className="field-label checkbox-field">
+        <input
+          type="checkbox"
+          checked={followUp}
+          onChange={(e) => setFollowUp(e.target.checked)}
+          disabled={pending}
+        />
+        Απαιτείται follow-up από εμάς — η απάντηση υπόσχεται ότι θα επανέλθουμε (η
+        συνομιλία θα μείνει ανοιχτή ως εκκρεμότητα αντί για «αναμονή πελάτη»)
+      </label>
+
       <div className="actions">
         <button
           type="button"
@@ -135,6 +150,7 @@ export default function DraftReviewPanel({
                 content,
                 note.trim() || undefined,
                 overrideValue || undefined,
+                followUp,
               ),
             )
           }

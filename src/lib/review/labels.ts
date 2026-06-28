@@ -17,6 +17,7 @@ export const CONVERSATION_STATUS_LABELS: Record<string, string> = {
   NEW: "Νέο",
   AWAITING_REVIEW: "Προς έλεγχο",
   AWAITING_CUSTOMER: "Αναμονή πελάτη",
+  AWAITING_FOLLOWUP: "Εκκρεμεί follow-up",
   ESCALATED: "Σε άνθρωπο",
   RESOLVED: "Λυμένο (χωρίς απάντηση)",
   CLOSED: "Κλειστό",
@@ -76,6 +77,7 @@ export function conversationStatusBadgeClass(status: string): string {
     case "ESCALATED":
       return "badge danger";
     case "AWAITING_REVIEW":
+    case "AWAITING_FOLLOWUP":
       return "badge warn";
     case "RESOLVED":
     case "CLOSED":

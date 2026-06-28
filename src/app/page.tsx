@@ -1,11 +1,16 @@
 import Link from "next/link";
-import { getReviewQueue, getStuckSends } from "@/lib/review/queue";
+import { getOpenFollowUps, getReviewQueue, getStuckSends } from "@/lib/review/queue";
+import FollowUpList from "./followups/FollowUpList";
 import QueueList from "./QueueList";
 
 export const dynamic = "force-dynamic";
 
 export default async function QueuePage() {
-  const [queue, stuck] = await Promise.all([getReviewQueue(), getStuckSends()]);
+  const [queue, stuck, followUps] = await Promise.all([
+    getReviewQueue(),
+    getStuckSends(),
+    getOpenFollowUps(),
+  ]);
 
   return (
     <main>
@@ -33,6 +38,18 @@ export default async function QueuePage() {
           ))}
           .
         </div>
+      )}
+
+      {followUps.length > 0 && (
+        <section style={{ marginBottom: 28 }}>
+          <div className="page-head" style={{ marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>Ανοιχτές εκκρεμότητες (follow-up)</h2>
+            <Link href="/followups" className="sub">
+              {followUps.length} προς διεκπεραίωση →
+            </Link>
+          </div>
+          <FollowUpList items={followUps} nowMs={Date.now()} />
+        </section>
       )}
 
       {queue.length === 0 ? (

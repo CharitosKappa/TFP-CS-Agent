@@ -31,6 +31,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   reply_send_failed: "Αποτυχία αποστολής",
   reply_sent_persist_failed: "Αποστολή OK αλλά αποτυχία καταγραφής",
   reply_sent_reconciled: "Συμφιλίωση αποστολής",
+  followup_handled: "Εκκρεμότητα follow-up διεκπεραιώθηκε",
 };
 const auditLabel = (a: string) => AUDIT_ACTION_LABELS[a] ?? a;
 
@@ -199,6 +200,7 @@ export default async function ReviewDetailPage({
                     initialContent={actionableDraft.content}
                     status={actionableDraft.status}
                     isEscalated={actionableDraft.isEscalated}
+                    promisesFollowUp={actionableDraft.promisesFollowUp}
                   />
                 ) : (
                   <>

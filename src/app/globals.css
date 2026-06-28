@@ -361,6 +361,33 @@ button.btn.danger {
   border-color: var(--danger);
   color: #fff;
 }
+/* Anchor styled as a button (e.g. follow-up "Άνοιγμα"). */
+a.btn {
+  display: inline-block;
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  text-decoration: none;
+}
+a.btn:hover {
+  filter: brightness(0.97);
+}
+/* Inline checkbox + wrapping label (reviewer "needs follow-up"). */
+.checkbox-field {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.checkbox-field input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
 .action-error {
   color: var(--danger);
   font-size: 0.9rem;

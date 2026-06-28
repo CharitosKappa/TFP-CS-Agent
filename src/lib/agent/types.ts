@@ -78,4 +78,10 @@ export interface DraftResult {
   reasoning: string;
   classification: Classification;
   redline: RedLineVerdict;
+  /**
+   * The reply defers/promises a follow-up from us rather than fully resolving
+   * the request. On send, routes the conversation to AWAITING_FOLLOWUP so the
+   * open obligation isn't lost. Declared by the drafting model.
+   */
+  promisesFollowUp: boolean;
 }

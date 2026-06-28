@@ -74,12 +74,13 @@ export async function draftReplyForInbound(
     reviewerGuidance: input.reviewerGuidance,
   };
 
-  const { content } = await generateDraft(ctx);
+  const { content, promisesFollowUp } = await generateDraft(ctx);
 
   const reasoning =
     `intent=${classification.intent} confidence=${classification.confidence.toFixed(2)} ` +
     `sentiment=${classification.sentiment} escalate=${redline.escalate}` +
+    (promisesFollowUp ? " follow-up=ναι" : "") +
     (redline.reasons.length ? ` reasons=${redline.reasons.join(",")}` : "");
 
-  return { content, reasoning, classification, redline };
+  return { content, reasoning, classification, redline, promisesFollowUp };
 }

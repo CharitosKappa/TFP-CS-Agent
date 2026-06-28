@@ -14,6 +14,10 @@ enum ConversationStatus {
   NEW
   AWAITING_REVIEW
   AWAITING_CUSTOMER
+  // We sent a "holding" reply that promised a follow-up from US (e.g. "θα το
+  // εξετάσουμε και θα επανέλθουμε"). The ball is in OUR court — a human must do
+  // the work and reply. Surfaced as an open obligation so it isn't forgotten.
+  AWAITING_FOLLOWUP
   ESCALATED
   // The customer's last message needed no reply (e.g. a closing "thanks"); no
   // draft generated. Surfaced for optional human close; auto-reopens on a new
@@ -116,6 +120,10 @@ model Draft {
   classification   Json?
   isEscalated      Boolean     @default(false)
   escalationReasons String[]
+  // True when this reply defers/promises a follow-up from us rather than fully
+  // resolving the request. Suggested by the drafting agent, confirmable by the
+  // reviewer; on send it routes the conversation to AWAITING_FOLLOWUP.
+  promisesFollowUp Boolean     @default(false)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 

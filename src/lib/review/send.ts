@@ -109,7 +109,11 @@ export async function sendDraftReply(
       await tx.draft.update({ where: { id: draftId }, data: { status: "SENT" } });
       await tx.conversation.update({
         where: { id: draft.conversationId },
-        data: { status: "AWAITING_CUSTOMER" },
+        // A holding reply (promised follow-up from us) keeps the ball in OUR
+        // court → AWAITING_FOLLOWUP. A self-contained reply waits on the customer.
+        data: {
+          status: draft.promisesFollowUp ? "AWAITING_FOLLOWUP" : "AWAITING_CUSTOMER",
+        },
       });
       await tx.auditLog.create({
         data: {

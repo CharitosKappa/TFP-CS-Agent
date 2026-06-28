@@ -227,6 +227,7 @@ export async function processInboundMessage(
         classification: result.classification as unknown as Prisma.InputJsonValue,
         isEscalated: result.redline.escalate,
         escalationReasons: result.redline.reasons,
+        promisesFollowUp: result.promisesFollowUp,
         status: "PENDING",
       },
     });
@@ -247,6 +248,7 @@ export async function processInboundMessage(
           escalated: result.redline.escalate,
           reasons: result.redline.reasons,
           intent: result.classification.intent,
+          promisesFollowUp: result.promisesFollowUp,
         },
       },
     });

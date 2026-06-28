@@ -33,6 +33,7 @@ export async function approveAndSendDraft(
   content: string,
   note?: string,
   overrideReason?: string,
+  requiresFollowUp?: boolean,
 ): Promise<ActionResult> {
   let reviewer: string;
   try {
@@ -79,6 +80,10 @@ export async function approveAndSendDraft(
         data: {
           status: edited ? "EDITED" : "APPROVED",
           ...(edited ? { content: trimmed } : {}),
+          // The reviewer's checkbox is the source of truth for whether this is a
+          // holding reply (pre-filled from the agent's suggestion). send.ts reads
+          // it to route the conversation to AWAITING_FOLLOWUP vs AWAITING_CUSTOMER.
+          ...(requiresFollowUp !== undefined ? { promisesFollowUp: requiresFollowUp } : {}),
         },
       });
 
@@ -285,5 +290,50 @@ export async function rejectAndRedraft(
   }
 
   revalidate(conversationId);
+  return { ok: true };
+}
+
+/**
+ * Closes an open follow-up obligation: a human did the promised work (and replied
+ * out-of-band) so the conversation no longer needs our action. Only valid while
+ * the conversation is AWAITING_FOLLOWUP; sets it CLOSED (auto-reopens on a new
+ * customer message, like RESOLVED — see ingestion/sync.ts).
+ */
+export async function markFollowUpHandled(
+  conversationId: string,
+): Promise<ActionResult> {
+  let reviewer: string;
+  try {
+    reviewer = await requireReviewer();
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
+  try {
+    const updated = await prisma.conversation.updateMany({
+      where: { id: conversationId, status: "AWAITING_FOLLOWUP" },
+      data: { status: "CLOSED" },
+    });
+    if (updated.count === 0) {
+      return {
+        ok: false,
+        error: "Η συνομιλία δεν είναι σε εκκρεμότητα follow-up — ανανεώστε τη σελίδα.",
+      };
+    }
+    await prisma.auditLog.create({
+      data: {
+        conversationId,
+        actor: reviewer,
+        action: "followup_handled",
+        detail: { reviewer },
+      },
+    });
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+
+  revalidatePath("/");
+  revalidatePath("/followups");
+  revalidatePath(`/review/${conversationId}`);
   return { ok: true };
 }

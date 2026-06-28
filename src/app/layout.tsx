@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@/auth";
+import { getFollowUpCount } from "@/lib/review/queue";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,6 +16,8 @@ export default async function RootLayout({
 }) {
   const session = await auth();
   const email = session?.user?.email ?? null;
+  // Best-effort badge — never let a DB hiccup break the whole shell.
+  const followUpCount = await getFollowUpCount().catch(() => 0);
 
   return (
     <html lang="el">
@@ -25,6 +28,9 @@ export default async function RootLayout({
           </Link>
           <nav className="topnav">
             <Link href="/">Ουρά ελέγχου</Link>
+            <Link href="/followups">
+              Εκκρεμότητες{followUpCount > 0 ? ` (${followUpCount})` : ""}
+            </Link>
             <Link href="/conversations">Όλες οι συνομιλίες</Link>
             {email ? (
               <>
