@@ -61,6 +61,20 @@ export async function draftReplyForInbound(
     }
   }
 
+  // Thread-aware: the last message in this thread is already OUR reply, yet the
+  // customer has written back — our previous answer didn't resolve it, so a human
+  // should take over the loop instead of auto-drafting another round. Deliberately
+  // conservative: this also escalates a genuinely new follow-up question, which is
+  // an acceptable trade-off in draft-only mode (every draft is human-reviewed, and
+  // the reviewer still gets this draft as a starting point).
+  const lastPrior = input.recentMessages[input.recentMessages.length - 1];
+  if (lastPrior?.direction === "OUTBOUND") {
+    redline.escalate = true;
+    if (!redline.reasons.includes("repeat_after_reply")) {
+      redline.reasons.push("repeat_after_reply");
+    }
+  }
+
   const ctx: PromptContext = {
     policies: input.policies,
     caseSummary: input.caseSummary,

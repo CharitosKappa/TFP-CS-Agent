@@ -42,6 +42,7 @@ export const REVIEW_ACTION_LABELS: Record<string, string> = {
 const RED_LINE_DESCRIPTIONS: Record<string, string> = {
   ...Object.fromEntries(RED_LINE_RULES.map((r) => [r.key, r.description])),
   low_confidence: "Χαμηλή βεβαιότητα ταξινόμησης",
+  repeat_after_reply: "Ο πελάτης επανήλθε μετά από δική μας απάντηση",
 };
 
 export function redLineLabel(key: string): string {
