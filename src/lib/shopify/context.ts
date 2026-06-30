@@ -56,9 +56,15 @@ function formatCustomer(c: ShopifyCustomerSummary): string {
         `${o.name} (${fmtDate(o.createdAt)}, ${o.fulfillmentStatus}/${o.financialStatus})`,
     )
     .join(", ");
+  // Store credit is a BALANCE on the account used at checkout — not a code. Show
+  // it so the agent answers store-credit questions from real data, not guesses.
+  const storeCredit = c.storeCredit.map((b) => `${b.amount} ${b.currency}`).join(", ");
   return [
     `Πελάτης: ${c.name} <${c.email}>`,
     `- Παραγγελίες: ${c.numberOfOrders} | Σύνολο δαπανών: ${c.amountSpent} ${c.currency}`,
+    storeCredit
+      ? `- Store Credit (πιστωτικό υπόλοιπο, διαθέσιμο στο checkout μετά από σύνδεση): ${storeCredit}`
+      : "",
     orders ? `- Πρόσφατες: ${orders}` : "",
   ]
     .filter(Boolean)
