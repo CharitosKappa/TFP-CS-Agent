@@ -163,18 +163,29 @@ export interface SentReply {
   internetMessageId: string | null;
 }
 
+/** A file to attach to an outgoing reply (small files only — sent inline as base64). */
+export interface OutgoingAttachment {
+  name: string;
+  contentType: string;
+  /** base64-encoded file bytes. */
+  base64: string;
+}
+
 /**
  * Sends a reply in the original thread, preserving threading (RE: subject,
  * In-Reply-To/References headers, conversationId): createReply → set our body →
- * send. Replies go to the sender of the original (the customer).
+ * (optional) add attachments → send. Replies go to the sender of the original
+ * (the customer). Attachments are added inline as fileAttachments, which Graph
+ * supports up to ~3 MB per file — fine for a voucher PDF.
  */
 export async function sendReplyInThread(
   originalGraphMessageId: string,
   bodyHtml: string,
+  attachments: OutgoingAttachment[] = [],
 ): Promise<SentReply> {
   const id = encodeURIComponent(originalGraphMessageId);
-  // These three calls are non-idempotent — never auto-retry them, or a
-  // lost-response timeout/5xx could double-send the email or orphan reply drafts.
+  // These calls are non-idempotent — never auto-retry them, or a lost-response
+  // timeout/5xx could double-send the email or orphan reply drafts.
   const noRetry = { retries: 0 } as const;
 
   // 1. Create a reply draft pre-populated with recipients/subject/threading.
@@ -196,7 +207,24 @@ export async function sendReplyInThread(
     noRetry,
   );
 
-  // 3. Send. Returns 202 Accepted with no body.
+  // 3. Attach files (if any) to the draft before sending.
+  for (const att of attachments) {
+    await graphFetch(
+      `${mailboxPath()}/messages/${draftId}/attachments`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: att.name,
+          contentType: att.contentType,
+          contentBytes: att.base64,
+        }),
+      },
+      noRetry,
+    );
+  }
+
+  // 4. Send. Returns 202 Accepted with no body.
   await graphFetch(`${mailboxPath()}/messages/${draftId}/send`, { method: "POST" }, noRetry);
 
   return {

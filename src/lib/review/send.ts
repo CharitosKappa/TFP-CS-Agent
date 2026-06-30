@@ -2,9 +2,10 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getEnv } from "@/lib/env";
-import { sendReplyInThread } from "@/lib/graph/messages";
+import { sendReplyInThread, type OutgoingAttachment } from "@/lib/graph/messages";
 import { textToHtml } from "@/lib/ingestion/html";
 import { updateCaseSummary } from "@/lib/agent/summary";
+import { fetchOdooAttachment } from "@/lib/odoo/attachments";
 import { errInfo, log } from "@/lib/observability/logger";
 
 /**
@@ -47,6 +48,27 @@ export async function sendDraftReply(
     );
   }
 
+  // Resolve the return voucher (if this reply promised one) BEFORE claiming the
+  // draft, so a fetch failure aborts cleanly — we must never email a reply that
+  // says "attached is your voucher" without the actual attachment.
+  const voucherId = (draft.classification as unknown as { voucherAttachmentId?: number } | null)
+    ?.voucherAttachmentId;
+  let attachments: OutgoingAttachment[] = [];
+  if (typeof voucherId === "number") {
+    let att;
+    try {
+      att = await fetchOdooAttachment(voucherId);
+    } catch (e) {
+      log.error("voucher_fetch_failed", { draftId, voucherId, ...errInfo(e) });
+      throw new Error("Αποτυχία ανάκτησης του voucher επιστροφής — η αποστολή ακυρώθηκε, δοκιμάστε ξανά.");
+    }
+    if (!att) {
+      log.error("voucher_fetch_empty", { draftId, voucherId });
+      throw new Error("Το voucher επιστροφής δεν βρέθηκε στο Odoo — η αποστολή ακυρώθηκε.");
+    }
+    attachments = [{ name: att.name, contentType: att.mimetype, base64: att.base64 }];
+  }
+
   const priorStatus = draft.status; // APPROVED | EDITED — restored if the send fails.
 
   // Atomic claim: only one caller can move APPROVED/EDITED -> SENDING.
@@ -64,7 +86,7 @@ export async function sendDraftReply(
   // 1. Send via Graph.
   let sent;
   try {
-    sent = await sendReplyInThread(draft.triggerMessage.graphMessageId, bodyHtml);
+    sent = await sendReplyInThread(draft.triggerMessage.graphMessageId, bodyHtml, attachments);
   } catch (e) {
     await prisma.draft
       .update({ where: { id: draftId }, data: { status: priorStatus } })
@@ -89,6 +111,7 @@ export async function sendDraftReply(
     graphMessageId: sent.graphMessageId,
     to: sent.toEmails,
     ...(override ? { escalationOverride: override } : {}),
+    ...(attachments.length ? { voucherAttached: voucherId } : {}),
   };
   try {
     await prisma.$transaction(async (tx) => {

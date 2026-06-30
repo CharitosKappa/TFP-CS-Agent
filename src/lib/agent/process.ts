@@ -210,6 +210,7 @@ export async function processInboundMessage(
         orderNumber: c.orderNumber,
         customerEmail: c.customerEmail || conv.customerEmail,
         intent: c.intent,
+        asksForReturnLabel: c.asksForReturnLabel,
       }),
   });
 
@@ -231,7 +232,12 @@ export async function processInboundMessage(
         triggerMessageId: message.id,
         content: result.content,
         reasoning: result.reasoning,
-        classification: result.classification as unknown as Prisma.InputJsonValue,
+        // The resolved voucher reference rides along in the classification JSON
+        // (no schema column needed); send.ts reads it back to attach the PDF.
+        classification: {
+          ...result.classification,
+          voucherAttachmentId: result.voucherAttachmentId,
+        } as unknown as Prisma.InputJsonValue,
         isEscalated: result.redline.escalate,
         escalationReasons: result.redline.reasons,
         promisesFollowUp: result.promisesFollowUp,

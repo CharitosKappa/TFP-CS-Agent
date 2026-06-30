@@ -2,6 +2,7 @@ import { classifyEmail } from "./classify";
 import { generateDraft } from "./draft";
 import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD } from "./redlines";
 import type { InlineImage } from "../media/image";
+import type { OdooGatherResult } from "../odoo/context";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
 export interface DraftReplyInput {
@@ -32,8 +33,8 @@ export interface DraftReplyInput {
    * extracted orderNumber/email so we only query what the message is about.
    */
   gatherShopify?: (classification: Classification) => Promise<string | undefined>;
-  /** Lazily fetches Odoo/RMA context once classified, same shape as gatherShopify. */
-  gatherOdoo?: (classification: Classification) => Promise<string | undefined>;
+  /** Lazily fetches Odoo/RMA context once classified (text + optional voucher ref). */
+  gatherOdoo?: (classification: Classification) => Promise<OdooGatherResult | undefined>;
 }
 
 /**
@@ -50,6 +51,7 @@ export async function draftReplyForInbound(
   // one source failing (or being slow) never blocks the draft or the other source.
   let shopifyContext = input.shopifyContext;
   let odooContext = input.odooContext;
+  let voucherAttachmentId: number | undefined;
   await Promise.all([
     (async () => {
       if (!shopifyContext && input.gatherShopify) {
@@ -63,7 +65,11 @@ export async function draftReplyForInbound(
     (async () => {
       if (!odooContext && input.gatherOdoo) {
         try {
-          odooContext = await input.gatherOdoo(classification);
+          const odoo = await input.gatherOdoo(classification);
+          if (odoo) {
+            odooContext = odoo.text;
+            voucherAttachmentId = odoo.voucherAttachmentId;
+          }
         } catch (e) {
           console.error("odoo gather failed:", e);
         }
@@ -115,7 +121,8 @@ export async function draftReplyForInbound(
     `intent=${classification.intent} confidence=${classification.confidence.toFixed(2)} ` +
     `sentiment=${classification.sentiment} escalate=${redline.escalate}` +
     (promisesFollowUp ? " follow-up=ναι" : "") +
+    (voucherAttachmentId ? " voucher=συνημμένο" : "") +
     (redline.reasons.length ? ` reasons=${redline.reasons.join(",")}` : "");
 
-  return { content, reasoning, classification, redline, promisesFollowUp };
+  return { content, reasoning, classification, redline, promisesFollowUp, voucherAttachmentId };
 }

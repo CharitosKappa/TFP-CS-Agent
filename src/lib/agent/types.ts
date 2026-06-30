@@ -23,6 +23,12 @@ export interface Classification {
   customerEmail?: string;
   /** Discount/coupon code the customer mentions, if any (for Shopify lookup). */
   couponCode?: string;
+  /**
+   * The customer is explicitly asking to RECEIVE or RESEND the return courier
+   * voucher/label (e.g. "δεν βρίσκω το voucher", "στείλτε μου ξανά την ετικέτα").
+   * Trigger for attaching the real voucher PDF from Odoo to the reply.
+   */
+  asksForReturnLabel?: boolean;
   sentiment: "positive" | "neutral" | "negative";
   /** One-line summary of what the customer wants. */
   summary: string;
@@ -80,6 +86,12 @@ export interface DraftResult {
   reasoning: string;
   classification: Classification;
   redline: RedLineVerdict;
+  /**
+   * Odoo ir.attachment id of the return courier voucher to attach to this reply,
+   * set when the customer asked for it and the RMA has one. Persisted with the
+   * draft; the binary is fetched from Odoo at send time (never stored locally).
+   */
+  voucherAttachmentId?: number;
   /**
    * The reply defers/promises a follow-up from us rather than fully resolving
    * the request. On send, routes the conversation to AWAITING_FOLLOWUP so the

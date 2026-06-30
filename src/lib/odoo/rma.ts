@@ -58,6 +58,8 @@ export interface RmaSummary {
   refundAmount: number;
   /** Carrier return-label URL, when the RMA has been sent. */
   returnTrackingUrl: string | null;
+  /** Odoo ir.attachment id of the courier voucher PDF on this RMA, if present. */
+  voucherAttachmentId: number | null;
   createdAt: string | null;
   lines: RmaLine[];
 }
@@ -110,7 +112,35 @@ async function fetchLines(ids: number[]): Promise<Map<number, RmaLine>> {
   return byId;
 }
 
-function toSummary(r: RawRma, lines: Map<number, RmaLine>): RmaSummary {
+/**
+ * Maps each RMA id to its courier voucher attachment id. Prefers an attachment
+ * whose name looks like a voucher; falls back to the newest PDF on the RMA.
+ */
+async function fetchVoucherIds(rmaIds: number[]): Promise<Map<number, number>> {
+  const byRma = new Map<number, number>();
+  if (rmaIds.length === 0) return byRma;
+  const rows = await execKw<{ id: number; res_id: number; name: string | false }[]>(
+    "ir.attachment", "search_read",
+    [[
+      ["res_model", "=", "sale.order.rma"],
+      ["res_id", "in", rmaIds],
+      ["mimetype", "=", "application/pdf"],
+    ]],
+    { fields: ["res_id", "name"], order: "id desc" }, // newest first
+  );
+  for (const a of rows) {
+    const looksLikeVoucher = /voucher/i.test(a.name || "");
+    // Take the first PDF seen per RMA (newest), but let a voucher-named one win.
+    if (!byRma.has(a.res_id) || looksLikeVoucher) byRma.set(a.res_id, a.id);
+  }
+  return byRma;
+}
+
+function toSummary(
+  r: RawRma,
+  lines: Map<number, RmaLine>,
+  voucherAttachmentId: number | null,
+): RmaSummary {
   const stateCode = r.state || "";
   return {
     id: r.id,
@@ -122,6 +152,7 @@ function toSummary(r: RawRma, lines: Map<number, RmaLine>): RmaSummary {
     refundMethod: r.refund_method ? (REFUND_METHOD[r.refund_method] ?? r.refund_method) : null,
     refundAmount: r.refund_amount ?? 0,
     returnTrackingUrl: orNull(r.dhl_locator_url),
+    voucherAttachmentId,
     createdAt: orNull(r.create_date),
     lines: (r.line_ids ?? []).map((id) => lines.get(id)).filter((l): l is RmaLine => Boolean(l)),
   };
@@ -135,8 +166,11 @@ async function searchRmas(domain: unknown[], limit = 10): Promise<RmaSummary[]> 
     limit,
   });
   const lineIds = records.flatMap((r) => r.line_ids ?? []);
-  const lines = await fetchLines(lineIds);
-  return records.map((r) => toSummary(r, lines));
+  const [lines, vouchers] = await Promise.all([
+    fetchLines(lineIds),
+    fetchVoucherIds(records.map((r) => r.id)),
+  ]);
+  return records.map((r) => toSummary(r, lines, vouchers.get(r.id) ?? null));
 }
 
 /** Looks up a single RMA by its reference (e.g. "RMA00042"). */

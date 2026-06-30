@@ -38,18 +38,33 @@ function formatRma(r: RmaSummary): string {
     .join("\n");
 }
 
+export interface OdooGatherResult {
+  /** Formatted RMA block for the prompt. */
+  text: string;
+  /**
+   * Odoo ir.attachment id of the voucher to attach to THIS reply — set only when
+   * the customer asked for the label AND the chosen RMA has a voucher. The binary
+   * is fetched at send time; here we only carry the reference.
+   */
+  voucherAttachmentId?: number;
+}
+
 /**
  * Fetches the Odoo RMA relevant to a message (fresh, on-demand) and formats it
  * for the prompt. Surfaces the latest ACTIVE return; if none is active, falls
  * back to the most recent RMA of any state so the agent still has ground truth
- * for a just-completed return. Best-effort: never throws — an Odoo failure must
- * not block drafting.
+ * for a just-completed return. When the customer explicitly asked for the return
+ * voucher and the RMA has one, flags it for attachment and tells the agent to
+ * reference it as attached. Best-effort: never throws — an Odoo failure must not
+ * block drafting.
  */
 export async function gatherOdooContext(input: {
   customerEmail?: string;
   orderNumber?: string;
   intent?: Intent;
-}): Promise<string | undefined> {
+  /** Customer explicitly asked to receive/resend the return voucher. */
+  asksForReturnLabel?: boolean;
+}): Promise<OdooGatherResult | undefined> {
   try {
     // Prefer the order when known (most precise); else look up by customer email.
     let rmas: RmaSummary[] = [];
@@ -61,7 +76,19 @@ export async function gatherOdooContext(input: {
 
     // rmas come back newest-first.
     const chosen = rmas.find((r) => !TERMINAL_STATES.has(r.stateCode)) ?? rmas[0];
-    return formatRma(chosen);
+    let text = formatRma(chosen);
+
+    // Trigger (α): attach the real voucher only when the customer asked for it
+    // AND this RMA actually has one.
+    let voucherAttachmentId: number | undefined;
+    if (input.asksForReturnLabel && chosen.voucherAttachmentId) {
+      voucherAttachmentId = chosen.voucherAttachmentId;
+      text +=
+        "\n- ΣΗΜΕΙΩΣΗ: το voucher επιστροφής (courier_voucher.pdf) ΕΠΙΣΥΝΑΠΤΕΤΑΙ" +
+        " αυτόματα σε αυτή την απάντηση — ανάφερέ το στον πελάτη ως συνημμένο και" +
+        " ΜΗΝ τον παραπέμπεις να το αναζητήσει αλλού.";
+    }
+    return { text, voucherAttachmentId };
   } catch {
     // Keep PII out of logs; the lookup detail is logged in rma/client already.
     log.error("odoo_context_failed", {});
