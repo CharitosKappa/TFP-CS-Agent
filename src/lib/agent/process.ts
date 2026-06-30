@@ -10,6 +10,7 @@ import {
 } from "../media/image";
 import { errInfo, log } from "../observability/logger";
 import { getRelatedConversations } from "../review/queue";
+import { gatherOdooContext } from "../odoo/context";
 import { gatherShopifyContext } from "../shopify/context";
 import { classifyEmail } from "./classify";
 import { draftReplyForInbound } from "./pipeline";
@@ -202,6 +203,12 @@ export async function processInboundMessage(
         // Fall back to the conversation's known customer email.
         customerEmail: c.customerEmail || conv.customerEmail,
         couponCode: c.couponCode,
+        intent: c.intent,
+      }),
+    gatherOdoo: (c) =>
+      gatherOdooContext({
+        orderNumber: c.orderNumber,
+        customerEmail: c.customerEmail || conv.customerEmail,
         intent: c.intent,
       }),
   });

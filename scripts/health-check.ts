@@ -2,6 +2,7 @@ import "dotenv/config";
 import { anthropicHealthCheck } from "../src/lib/anthropic/client";
 import { graphHealthCheck } from "../src/lib/graph/client";
 import { shopifyHealthCheck } from "../src/lib/shopify/client";
+import { odooHealthCheck } from "../src/lib/odoo/client";
 
 async function run(
   name: string,
@@ -22,6 +23,7 @@ async function main() {
     run("Anthropic", anthropicHealthCheck),
     run("Microsoft Graph", graphHealthCheck),
     run("Shopify", shopifyHealthCheck),
+    run("Odoo", odooHealthCheck),
   ]);
   if (results.some((ok) => !ok)) process.exit(1);
 }

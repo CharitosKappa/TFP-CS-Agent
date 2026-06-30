@@ -1,0 +1,156 @@
+import { execKw } from "./client";
+
+// Read-only lookups against the custom `sale.order.rma` module on staging/prod.
+// The agent uses these to tell a customer where their return/RMA stands. All
+// access is read-only — the bound Odoo user has no write rights, so even a
+// stray write method would be refused server-side.
+
+// A many2one comes back from Odoo as [id, displayName], or false when unset.
+type Many2One = [number, string] | false;
+
+// Canonical (English) labels for the module's selection fields, verified
+// against sale.order.rma on staging. These are an INTERNAL representation: the
+// agent translates them into the customer's language at draft time, so we don't
+// localise here. Raw codes stay available alongside (stateCode) so callers can
+// branch on a stable value rather than on display text.
+const RMA_STATE: Record<string, string> = {
+  pending: "Pending",
+  processing: "Processing",
+  received: "Received",
+  validated: "Validated",
+  processed: "Processed",
+  invalid: "Invalid",
+  locked: "Locked",
+  cancel: "Cancelled",
+};
+
+const REFUND_METHOD: Record<string, string> = {
+  credit_store: "Store credit",
+  iban: "Bank transfer (IBAN)",
+  prepaid: "Prepaid",
+};
+
+const RETURN_REASON: Record<string, string> = {
+  missfit: "Doesn't fit",
+  change_opinion: "Changed mind",
+  defect: "Defective",
+  wrong_product: "Wrong product",
+  no_input: "Not specified",
+};
+
+export interface RmaLine {
+  product: string | null;
+  quantity: number;
+  reason: string;
+  remarks: string | null;
+}
+
+export interface RmaSummary {
+  id: number;
+  name: string;
+  /** Raw state code (stable for branching), e.g. "received". */
+  stateCode: string;
+  /** Human-readable state, e.g. "Received". */
+  state: string;
+  orderName: string | null;
+  customer: string | null;
+  refundMethod: string | null;
+  refundAmount: number;
+  /** Carrier return-label URL, when the RMA has been sent. */
+  returnTrackingUrl: string | null;
+  createdAt: string | null;
+  lines: RmaLine[];
+}
+
+// Loose shapes for the raw Odoo records — every field can be false when unset.
+interface RawRmaLine {
+  id: number;
+  product_id: Many2One;
+  product_return_qty: number;
+  return_reason: string | false;
+  remarks: string | false;
+}
+
+interface RawRma {
+  id: number;
+  name: string | false;
+  state: string | false;
+  order_id: Many2One;
+  partner_id: Many2One;
+  refund_method: string | false;
+  refund_amount: number;
+  dhl_locator_url: string | false;
+  create_date: string | false;
+  line_ids: number[];
+}
+
+const RMA_FIELDS = [
+  "name", "state", "order_id", "partner_id", "refund_method",
+  "refund_amount", "dhl_locator_url", "create_date", "line_ids",
+];
+
+const m2oName = (v: Many2One): string | null => (Array.isArray(v) ? v[1] : null);
+const orNull = (v: string | false): string | null => (v === false ? null : v);
+
+/** Reads the RMA lines for a set of ids and maps them by id. */
+async function fetchLines(ids: number[]): Promise<Map<number, RmaLine>> {
+  const byId = new Map<number, RmaLine>();
+  if (ids.length === 0) return byId;
+  const rows = await execKw<RawRmaLine[]>("sale.order.rma.line", "read", [ids], {
+    fields: ["product_id", "product_return_qty", "return_reason", "remarks"],
+  });
+  for (const r of rows) {
+    byId.set(r.id, {
+      product: m2oName(r.product_id),
+      quantity: r.product_return_qty,
+      reason: r.return_reason ? (RETURN_REASON[r.return_reason] ?? r.return_reason) : "Not specified",
+      remarks: orNull(r.remarks),
+    });
+  }
+  return byId;
+}
+
+function toSummary(r: RawRma, lines: Map<number, RmaLine>): RmaSummary {
+  const stateCode = r.state || "";
+  return {
+    id: r.id,
+    name: r.name || `RMA-${r.id}`,
+    stateCode,
+    state: RMA_STATE[stateCode] ?? stateCode ?? "Unknown",
+    orderName: m2oName(r.order_id),
+    customer: m2oName(r.partner_id),
+    refundMethod: r.refund_method ? (REFUND_METHOD[r.refund_method] ?? r.refund_method) : null,
+    refundAmount: r.refund_amount ?? 0,
+    returnTrackingUrl: orNull(r.dhl_locator_url),
+    createdAt: orNull(r.create_date),
+    lines: (r.line_ids ?? []).map((id) => lines.get(id)).filter((l): l is RmaLine => Boolean(l)),
+  };
+}
+
+/** Runs a domain search and returns hydrated summaries, newest first. */
+async function searchRmas(domain: unknown[], limit = 10): Promise<RmaSummary[]> {
+  const records = await execKw<RawRma[]>("sale.order.rma", "search_read", [domain], {
+    fields: RMA_FIELDS,
+    order: "create_date desc",
+    limit,
+  });
+  const lineIds = records.flatMap((r) => r.line_ids ?? []);
+  const lines = await fetchLines(lineIds);
+  return records.map((r) => toSummary(r, lines));
+}
+
+/** Looks up a single RMA by its reference (e.g. "RMA00042"). */
+export async function getRmaByName(name: string): Promise<RmaSummary | null> {
+  const rows = await searchRmas([["name", "=", name]], 1);
+  return rows[0] ?? null;
+}
+
+/** All RMAs linked to a sales order, by the order's reference (e.g. "S00123"). */
+export async function findRmasByOrder(orderName: string): Promise<RmaSummary[]> {
+  return searchRmas([["order_id.name", "=", orderName]]);
+}
+
+/** All RMAs for a customer, matched on the partner's email. */
+export async function findRmasByCustomerEmail(email: string): Promise<RmaSummary[]> {
+  return searchRmas([["partner_id.email", "=ilike", email]]);
+}

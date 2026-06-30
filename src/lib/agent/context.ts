@@ -51,6 +51,7 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
     ctx.relatedContext &&
       `# Άλλες πρόσφατες συνομιλίες ΙΔΙΟΥ πελάτη (μόνο για context — ΜΗΝ τις ανακατεύεις στην απάντηση)\n${ctx.relatedContext}`,
     ctx.shopifyContext && `# Δεδομένα Shopify\n${ctx.shopifyContext}`,
+    ctx.odooContext && `# Δεδομένα Odoo (επιστροφές/RMA)\n${ctx.odooContext}`,
     history && `# Πρόσφατα μηνύματα\n${history}`,
     `# Νέο μήνυμα πελάτη (προς απάντηση)\n${ctx.incomingMessage}`,
     ctx.attachmentSummary && `# Συνημμένα πελάτη\n${ctx.attachmentSummary}`,

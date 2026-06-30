@@ -19,6 +19,8 @@ export interface DraftReplyInput {
   attachmentSummary?: string;
   /** Pre-computed Shopify context (takes precedence over gatherShopify). */
   shopifyContext?: string;
+  /** Pre-computed Odoo/RMA context (takes precedence over gatherOdoo). */
+  odooContext?: string;
   /** Reviewer feedback fed back in when regenerating a rejected draft. */
   reviewerGuidance?: string;
   /** Compact summaries of the same customer's other recent threads (context only). */
@@ -30,6 +32,8 @@ export interface DraftReplyInput {
    * extracted orderNumber/email so we only query what the message is about.
    */
   gatherShopify?: (classification: Classification) => Promise<string | undefined>;
+  /** Lazily fetches Odoo/RMA context once classified, same shape as gatherShopify. */
+  gatherOdoo?: (classification: Classification) => Promise<string | undefined>;
 }
 
 /**
@@ -42,14 +46,30 @@ export async function draftReplyForInbound(
   const classification =
     input.classification ?? (await classifyEmail(input.incomingMessage, input.subject));
 
+  // Gather external context concurrently — each is best-effort and isolated, so
+  // one source failing (or being slow) never blocks the draft or the other source.
   let shopifyContext = input.shopifyContext;
-  if (!shopifyContext && input.gatherShopify) {
-    try {
-      shopifyContext = await input.gatherShopify(classification);
-    } catch (e) {
-      console.error("shopify gather failed:", e);
-    }
-  }
+  let odooContext = input.odooContext;
+  await Promise.all([
+    (async () => {
+      if (!shopifyContext && input.gatherShopify) {
+        try {
+          shopifyContext = await input.gatherShopify(classification);
+        } catch (e) {
+          console.error("shopify gather failed:", e);
+        }
+      }
+    })(),
+    (async () => {
+      if (!odooContext && input.gatherOdoo) {
+        try {
+          odooContext = await input.gatherOdoo(classification);
+        } catch (e) {
+          console.error("odoo gather failed:", e);
+        }
+      }
+    })(),
+  ]);
 
   // Red-line scan over subject + body (the subject can carry red-line wording too).
   const redline = detectRedLines(`${input.subject ?? ""}\n${input.incomingMessage}`);
@@ -84,6 +104,7 @@ export async function draftReplyForInbound(
     images: input.images,
     attachmentSummary: input.attachmentSummary,
     shopifyContext,
+    odooContext,
     relatedContext: input.relatedContext,
     reviewerGuidance: input.reviewerGuidance,
   };

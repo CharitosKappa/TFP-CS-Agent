@@ -38,6 +38,14 @@ const EnvSchema = z.object({
   SHOPIFY_CLIENT_SECRET: z.string().min(1),
   SHOPIFY_API_VERSION: z.string().default("2025-10"),
 
+  // Odoo — self-hosted, read-only RMA/order lookups over JSON-RPC. The agent
+  // authenticates as a dedicated read-only user with an API key (not a
+  // password); see odoo/client.ts. HTTPS only — the key is sent in the body.
+  ODOO_URL: z.string().url(),
+  ODOO_DB: z.string().min(1),
+  ODOO_API_USER: z.string().min(1),
+  ODOO_API_KEY: z.string().min(1),
+
   // Database
   DATABASE_URL: z.string().min(1),
 });

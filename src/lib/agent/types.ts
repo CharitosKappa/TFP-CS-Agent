@@ -59,6 +59,8 @@ export interface PromptContext {
   /** Text summary of ALL attachments, so the agent never re-asks for sent files. */
   attachmentSummary?: string;
   shopifyContext?: string;
+  /** Latest active return/RMA for this customer/order, from Odoo (read-only). */
+  odooContext?: string;
   /**
    * Compact summaries of the SAME customer's other recent threads (e.g. ones they
    * opened instead of replying in-thread). Context only — the agent must answer
