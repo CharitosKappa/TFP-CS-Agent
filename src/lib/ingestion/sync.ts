@@ -1,6 +1,5 @@
 import { MessageDirection } from "@prisma/client";
 import { prisma } from "../db";
-import { getEnv } from "../env";
 import {
   fetchConversationThread,
   fetchInboxMessages,
@@ -9,9 +8,9 @@ import {
   messageHasImageAttachment,
 } from "../graph/messages";
 import type { GraphMessage, GraphRecipient } from "../graph/types";
+import { makeIsInternal, toBodyText } from "../graph/message-parse";
 import { errInfo, log } from "../observability/logger";
 import { isShopifyContactForm, parseShopifyContactForm } from "./contact-form";
-import { htmlToText, stripQuotedReply } from "./html";
 
 function addr(r?: GraphRecipient | null): { email: string; name: string | null } {
   return {
@@ -26,12 +25,6 @@ function extractOrderNumber(subject: string | null | undefined): string | null {
   return m ? m[1] : null;
 }
 
-function toBodyText(msg: GraphMessage): string {
-  const raw = msg.body?.content ?? msg.bodyPreview ?? "";
-  const isHtml = (msg.body?.contentType ?? "").toLowerCase() === "html";
-  return stripQuotedReply(isHtml ? htmlToText(raw) : raw);
-}
-
 export interface IngestResult {
   conversationCreated: boolean;
   messageCreated: boolean;
@@ -40,21 +33,7 @@ export interface IngestResult {
 
 /** Threads a Graph message into a Conversation and persists it (idempotent). */
 export async function ingestGraphMessage(msg: GraphMessage): Promise<IngestResult> {
-  const env = getEnv();
-  // "Us" = any address on the mailbox's own domain (support@, info@, eshop@, …)
-  // OR a configured alias domain (e.g. the *.onmicrosoft.com tenant domain) — not
-  // just GRAPH_MAILBOX, otherwise a reply from a sibling address is mistaken for
-  // the customer. The customer is the first EXTERNAL participant.
-  const mailboxDomain = env.GRAPH_MAILBOX.toLowerCase().split("@")[1] ?? "";
-  const internalDomains = new Set(
-    [mailboxDomain, ...(env.INTERNAL_EMAIL_DOMAINS ?? "").split(",")]
-      .map((d) => d.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  const isInternal = (email: string) => {
-    const at = email.lastIndexOf("@");
-    return at !== -1 && internalDomains.has(email.slice(at + 1));
-  };
+  const isInternal = makeIsInternal();
 
   const from = addr(msg.from ?? msg.sender);
   const toList = (msg.toRecipients ?? []).map(addr);

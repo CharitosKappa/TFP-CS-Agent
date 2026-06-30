@@ -19,6 +19,8 @@ export interface GraphMessage {
   receivedDateTime: string;
   isRead?: boolean;
   internetMessageId?: string | null;
+  /** Deep-link to open the message in Outlook on the web (present on createReply). */
+  webLink?: string | null;
 }
 
 export interface GraphListResponse<T> {

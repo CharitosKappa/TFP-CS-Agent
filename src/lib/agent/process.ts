@@ -35,7 +35,7 @@ interface InboundMedia {
  * the model can "see" (vision, capped) PLUS a text summary of ALL attachments —
  * so the agent never re-asks for files/photos the customer already sent.
  */
-async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> {
+export async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> {
   try {
     const attachments = await getMessageAttachments(graphMessageId);
     if (!attachments.length) return { images: [] };

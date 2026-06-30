@@ -33,7 +33,7 @@ function odata(params: Record<string, string>): string {
 /** Fetches recent messages from a mail folder (newest first), paging up to `limit`. */
 async function fetchFolderMessages(
   folder: string,
-  opts: { limit?: number; since?: Date } = {},
+  opts: { limit?: number; since?: Date; unreadOnly?: boolean } = {},
 ): Promise<GraphMessage[]> {
   const limit = opts.limit ?? 25;
   const params: Record<string, string> = {
@@ -41,7 +41,10 @@ async function fetchFolderMessages(
     $top: String(Math.min(limit, 50)),
     $orderby: "receivedDateTime desc",
   };
-  if (opts.since) params.$filter = `receivedDateTime ge ${opts.since.toISOString()}`;
+  const filters: string[] = [];
+  if (opts.since) filters.push(`receivedDateTime ge ${opts.since.toISOString()}`);
+  if (opts.unreadOnly) filters.push("isRead eq false");
+  if (filters.length) params.$filter = filters.join(" and ");
 
   let next: string | null = `${mailboxPath()}/mailFolders/${folder}/messages?${odata(params)}`;
   const out: GraphMessage[] = [];
@@ -55,8 +58,8 @@ async function fetchFolderMessages(
   return out.slice(0, limit);
 }
 
-/** Recent inbox messages (customer → us), newest first. */
-export function fetchInboxMessages(opts: { limit?: number; since?: Date } = {}) {
+/** Recent inbox messages (customer → us), newest first. Pass unreadOnly to filter. */
+export function fetchInboxMessages(opts: { limit?: number; since?: Date; unreadOnly?: boolean } = {}) {
   return fetchFolderMessages("inbox", opts);
 }
 
@@ -171,43 +174,52 @@ export interface OutgoingAttachment {
   base64: string;
 }
 
+// These calls are non-idempotent — never auto-retry them, or a lost-response
+// timeout/5xx could double-send the email or orphan reply drafts.
+const NO_RETRY = { retries: 0 } as const;
+
 /**
- * Sends a reply in the original thread, preserving threading (RE: subject,
- * In-Reply-To/References headers, conversationId): createReply → set our body →
- * (optional) add attachments → send. Replies go to the sender of the original
- * (the customer). Attachments are added inline as fileAttachments, which Graph
- * supports up to ~3 MB per file — fine for a voucher PDF.
+ * Creates an in-thread reply DRAFT (not sent): createReply (preserves RE:
+ * subject, In-Reply-To/References, conversationId) → set our body → add
+ * attachments. Returns the draft GraphMessage. Attachments are inline
+ * fileAttachments, which Graph supports up to ~3 MB per file (fine for a voucher).
  */
-export async function sendReplyInThread(
+interface ReplyDraftOptions {
+  attachments?: OutgoingAttachment[];
+  /** Outlook categories (tags) to set on the draft, e.g. for escalation. */
+  categories?: string[];
+  /** Flag the draft for follow-up and mark it high importance. */
+  flagged?: boolean;
+}
+
+async function buildReplyDraft(
   originalGraphMessageId: string,
   bodyHtml: string,
-  attachments: OutgoingAttachment[] = [],
-): Promise<SentReply> {
+  opts: ReplyDraftOptions = {},
+): Promise<GraphMessage> {
+  const { attachments = [], categories, flagged } = opts;
   const id = encodeURIComponent(originalGraphMessageId);
-  // These calls are non-idempotent — never auto-retry them, or a lost-response
-  // timeout/5xx could double-send the email or orphan reply drafts.
-  const noRetry = { retries: 0 } as const;
-
-  // 1. Create a reply draft pre-populated with recipients/subject/threading.
   const created = await graphFetch(
     `${mailboxPath()}/messages/${id}/createReply`,
     { method: "POST" },
-    noRetry,
+    NO_RETRY,
   );
   const draft = (await created.json()) as GraphMessage;
   const draftId = encodeURIComponent(draft.id);
 
-  // 2. Replace the body with our drafted reply.
   await graphFetch(
     `${mailboxPath()}/messages/${draftId}`,
     {
       method: "PATCH",
-      body: JSON.stringify({ body: { contentType: "HTML", content: bodyHtml } }),
+      body: JSON.stringify({
+        body: { contentType: "HTML", content: bodyHtml },
+        ...(categories?.length ? { categories } : {}),
+        ...(flagged ? { flag: { flagStatus: "flagged" }, importance: "high" } : {}),
+      }),
     },
-    noRetry,
+    NO_RETRY,
   );
 
-  // 3. Attach files (if any) to the draft before sending.
   for (const att of attachments) {
     await graphFetch(
       `${mailboxPath()}/messages/${draftId}/attachments`,
@@ -220,12 +232,41 @@ export async function sendReplyInThread(
           contentBytes: att.base64,
         }),
       },
-      noRetry,
+      NO_RETRY,
     );
   }
+  return draft;
+}
 
-  // 4. Send. Returns 202 Accepted with no body.
-  await graphFetch(`${mailboxPath()}/messages/${draftId}/send`, { method: "POST" }, noRetry);
+/**
+ * Creates a reply draft in the original thread and leaves it UNSENT in the
+ * mailbox's Drafts folder for a human to review and send from Outlook.
+ */
+export async function createReplyDraft(
+  originalGraphMessageId: string,
+  bodyHtml: string,
+  opts: ReplyDraftOptions = {},
+): Promise<{ graphMessageId: string; webLink?: string | null }> {
+  const draft = await buildReplyDraft(originalGraphMessageId, bodyHtml, opts);
+  return { graphMessageId: draft.id, webLink: draft.webLink ?? null };
+}
+
+/**
+ * Sends a reply in the original thread: build the reply draft (body +
+ * attachments) → send. Replies go to the sender of the original (the customer).
+ */
+export async function sendReplyInThread(
+  originalGraphMessageId: string,
+  bodyHtml: string,
+  attachments: OutgoingAttachment[] = [],
+): Promise<SentReply> {
+  const draft = await buildReplyDraft(originalGraphMessageId, bodyHtml, { attachments });
+  // Send. Returns 202 Accepted with no body.
+  await graphFetch(
+    `${mailboxPath()}/messages/${encodeURIComponent(draft.id)}/send`,
+    { method: "POST" },
+    NO_RETRY,
+  );
 
   return {
     graphMessageId: draft.id,
