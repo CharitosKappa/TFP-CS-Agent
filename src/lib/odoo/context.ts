@@ -1,6 +1,12 @@
 import type { Intent } from "../agent/types";
 import { log } from "../observability/logger";
-import { findRmasByCustomerEmail, findRmasByOrder, type RmaSummary } from "./rma";
+import {
+  findRmaRecordsByCustomerEmail,
+  findRmaRecordsByOrder,
+  hydrateRma,
+  type RmaRecord,
+  type RmaSummary,
+} from "./rma";
 
 // RMA states considered CLOSED. Everything else (pending/processing/received/
 // validated/locked) is "active" — a return still in progress. Adjust here if the
@@ -67,15 +73,18 @@ export async function gatherOdooContext(input: {
 }): Promise<OdooGatherResult | undefined> {
   try {
     // Prefer the order when known (most precise); else look up by customer email.
-    let rmas: RmaSummary[] = [];
-    if (input.orderNumber) rmas = await findRmasByOrder(input.orderNumber);
-    if (rmas.length === 0 && input.customerEmail) {
-      rmas = await findRmasByCustomerEmail(input.customerEmail);
+    // Search returns lightweight records; we hydrate only the one we keep.
+    let records: RmaRecord[] = [];
+    if (input.orderNumber) records = await findRmaRecordsByOrder(input.orderNumber);
+    if (records.length === 0 && input.customerEmail) {
+      records = await findRmaRecordsByCustomerEmail(input.customerEmail);
     }
-    if (rmas.length === 0) return undefined;
+    if (records.length === 0) return undefined;
 
-    // rmas come back newest-first.
-    const chosen = rmas.find((r) => !TERMINAL_STATES.has(r.stateCode)) ?? rmas[0];
+    // Records come back newest-first: prefer the latest active, else the newest.
+    const chosenRecord =
+      records.find((r) => !TERMINAL_STATES.has(r.state || "")) ?? records[0];
+    const chosen = await hydrateRma(chosenRecord);
     let text = formatRma(chosen);
 
     // Trigger (α): attach the real voucher only when the customer asked for it

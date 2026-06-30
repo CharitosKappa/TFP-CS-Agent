@@ -73,7 +73,10 @@ interface RawRmaLine {
   remarks: string | false;
 }
 
-interface RawRma {
+// A raw RMA record from search_read — cheap to fetch in bulk. Lines and the
+// voucher attachment are NOT included; call hydrateRma() to add them for the one
+// record you actually need (avoids hydrating candidates you'll discard).
+export interface RmaRecord {
   id: number;
   name: string | false;
   state: string | false;
@@ -137,7 +140,7 @@ async function fetchVoucherIds(rmaIds: number[]): Promise<Map<number, number>> {
 }
 
 function toSummary(
-  r: RawRma,
+  r: RmaRecord,
   lines: Map<number, RmaLine>,
   voucherAttachmentId: number | null,
 ): RmaSummary {
@@ -158,33 +161,30 @@ function toSummary(
   };
 }
 
-/** Runs a domain search and returns hydrated summaries, newest first. */
-async function searchRmas(domain: unknown[], limit = 10): Promise<RmaSummary[]> {
-  const records = await execKw<RawRma[]>("sale.order.rma", "search_read", [domain], {
+/** Runs a domain search and returns raw records (no lines/voucher), newest first. */
+async function searchRmaRecords(domain: unknown[], limit = 10): Promise<RmaRecord[]> {
+  return execKw<RmaRecord[]>("sale.order.rma", "search_read", [domain], {
     fields: RMA_FIELDS,
     order: "create_date desc",
     limit,
   });
-  const lineIds = records.flatMap((r) => r.line_ids ?? []);
+}
+
+/** Adds the lines + voucher attachment to a single record (fetched concurrently). */
+export async function hydrateRma(r: RmaRecord): Promise<RmaSummary> {
   const [lines, vouchers] = await Promise.all([
-    fetchLines(lineIds),
-    fetchVoucherIds(records.map((r) => r.id)),
+    fetchLines(r.line_ids ?? []),
+    fetchVoucherIds([r.id]),
   ]);
-  return records.map((r) => toSummary(r, lines, vouchers.get(r.id) ?? null));
+  return toSummary(r, lines, vouchers.get(r.id) ?? null);
 }
 
-/** Looks up a single RMA by its reference (e.g. "RMA00042"). */
-export async function getRmaByName(name: string): Promise<RmaSummary | null> {
-  const rows = await searchRmas([["name", "=", name]], 1);
-  return rows[0] ?? null;
+/** Records of all RMAs linked to a sales order, by the order's reference (e.g. "S00123"). */
+export async function findRmaRecordsByOrder(orderName: string): Promise<RmaRecord[]> {
+  return searchRmaRecords([["order_id.name", "=", orderName]]);
 }
 
-/** All RMAs linked to a sales order, by the order's reference (e.g. "S00123"). */
-export async function findRmasByOrder(orderName: string): Promise<RmaSummary[]> {
-  return searchRmas([["order_id.name", "=", orderName]]);
-}
-
-/** All RMAs for a customer, matched on the partner's email. */
-export async function findRmasByCustomerEmail(email: string): Promise<RmaSummary[]> {
-  return searchRmas([["partner_id.email", "=ilike", email]]);
+/** Records of all RMAs for a customer, matched on the partner's email. */
+export async function findRmaRecordsByCustomerEmail(email: string): Promise<RmaRecord[]> {
+  return searchRmaRecords([["partner_id.email", "=ilike", email]]);
 }
