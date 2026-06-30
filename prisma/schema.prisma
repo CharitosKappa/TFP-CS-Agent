@@ -120,6 +120,10 @@ model Draft {
   classification   Json?
   isEscalated      Boolean     @default(false)
   escalationReasons String[]
+  // Odoo ir.attachment id of the return courier voucher to attach when sending
+  // this reply (set when the customer asked for it and the RMA has one). The PDF
+  // itself is fetched from Odoo at send time — never stored locally (PRIVACY.md).
+  voucherAttachmentId Int?
   // True when this reply defers/promises a follow-up from us rather than fully
   // resolving the request. Suggested by the drafting agent, confirmable by the
   // reviewer; on send it routes the conversation to AWAITING_FOLLOWUP.

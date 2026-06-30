@@ -232,14 +232,11 @@ export async function processInboundMessage(
         triggerMessageId: message.id,
         content: result.content,
         reasoning: result.reasoning,
-        // The resolved voucher reference rides along in the classification JSON
-        // (no schema column needed); send.ts reads it back to attach the PDF.
-        classification: {
-          ...result.classification,
-          voucherAttachmentId: result.voucherAttachmentId,
-        } as unknown as Prisma.InputJsonValue,
+        classification: result.classification as unknown as Prisma.InputJsonValue,
         isEscalated: result.redline.escalate,
         escalationReasons: result.redline.reasons,
+        // Resolved at draft time; send.ts fetches the PDF from Odoo to attach.
+        voucherAttachmentId: result.voucherAttachmentId ?? null,
         promisesFollowUp: result.promisesFollowUp,
         status: "PENDING",
       },

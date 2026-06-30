@@ -51,8 +51,7 @@ export async function sendDraftReply(
   // Resolve the return voucher (if this reply promised one) BEFORE claiming the
   // draft, so a fetch failure aborts cleanly — we must never email a reply that
   // says "attached is your voucher" without the actual attachment.
-  const voucherId = (draft.classification as unknown as { voucherAttachmentId?: number } | null)
-    ?.voucherAttachmentId;
+  const voucherId = draft.voucherAttachmentId;
   let attachments: OutgoingAttachment[] = [];
   if (typeof voucherId === "number") {
     let att;
