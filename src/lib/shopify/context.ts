@@ -30,20 +30,41 @@ function formatDiscount(d: ShopifyDiscountSummary): string {
     .join("\n");
 }
 
+/** ENDEIKTIKΟΙ (estimate) fulfill/delivery times from Shopify shipping settings. */
+function formatDeliveryEstimate(
+  est: NonNullable<ShopifyOrderSummary["deliveryEstimate"]>,
+): string {
+  const parts: string[] = [];
+  if (est.fulfillBy) parts.push(`αποστολή έως ${fmtDate(est.fulfillBy)}`);
+  const min = est.minDelivery ? fmtDate(est.minDelivery) : null;
+  const max = est.maxDelivery ? fmtDate(est.maxDelivery) : null;
+  if (min || max) {
+    const window = min && max && min !== max ? `${min} – ${max}` : (max ?? min);
+    parts.push(`εκτιμώμενη παράδοση ${window}`);
+  }
+  return parts.join(" · ");
+}
+
 function formatOrder(o: ShopifyOrderSummary): string {
   const items = o.lineItems.map((li) => `${li.quantity}× ${li.title}`).join(", ");
   const tracking = o.trackings
     .filter((t) => t.number || t.url)
     .map((t) => [t.company, t.number, t.url].filter(Boolean).join(" "))
     .join(" | ");
+  // Estimates matter while the order is still to ship; once there's tracking,
+  // that's the real signal, so don't clutter the block with both.
+  const estimate =
+    o.deliveryEstimate && !tracking ? formatDeliveryEstimate(o.deliveryEstimate) : "";
   return [
     `Παραγγελία ${o.name} (${fmtDate(o.createdAt)})`,
     `- Εκτέλεση: ${o.fulfillmentStatus} | Κατάσταση πληρωμής: ${o.financialStatus}`,
     o.paymentMethod ? `- Τρόπος πληρωμής: ${o.paymentMethod}` : "",
     `- Σύνολο: ${o.total} ${o.currency}`,
+    o.shippingMethod ? `- Τρόπος αποστολής (courier): ${o.shippingMethod}` : "",
     o.shippingCity ? `- Αποστολή προς: ${o.shippingCity}` : "",
     items ? `- Είδη: ${items}` : "",
     tracking ? `- Tracking: ${tracking}` : "",
+    estimate ? `- Εκτιμώμενοι χρόνοι (ενδεικτικοί, όχι εγγύηση): ${estimate}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -84,13 +105,26 @@ export async function gatherShopifyContext(input: {
 }): Promise<string | undefined> {
   const parts: string[] = [];
   try {
+    let orderAdded = false;
     if (input.orderNumber) {
       const order = await getOrderByName(input.orderNumber);
-      if (order) parts.push(formatOrder(order));
+      if (order) {
+        parts.push(formatOrder(order));
+        orderAdded = true;
+      }
     }
     if (input.customerEmail) {
       const customer = await getCustomerByEmail(input.customerEmail);
-      if (customer) parts.push(formatCustomer(customer));
+      if (customer) {
+        parts.push(formatCustomer(customer));
+        // No order number cited? Surface the customer's most recent order in full
+        // (status, tracking, delivery estimate) — most "where's my order?" emails
+        // don't include a number.
+        if (!orderAdded && customer.recentOrders[0]) {
+          const latest = await getOrderByName(customer.recentOrders[0].name).catch(() => null);
+          if (latest) parts.push(formatOrder(latest));
+        }
+      }
     }
     if (input.couponCode) {
       // Check both discount systems: modern code discounts, then (if not found)
