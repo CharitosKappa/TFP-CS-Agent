@@ -61,8 +61,10 @@ export const RED_LINE_RULES: RedLineRule[] = [
   },
   {
     key: "compensation",
-    description: "Αίτημα αποζημίωσης",
-    stems: ["αποζημ", "compensat", "διαφυγόντ"],
+    description: "Αίτημα αποζημίωσης (compensation/damages, incl. FR)",
+    // EL: αποζημ*, διαφυγόντ*  ·  EN: compensat*  ·  FR: indemni* (indemnité/
+    // indemnisation/indemniser), dédommag* (dédommagement/dédommager).
+    stems: ["αποζημ", "compensat", "διαφυγόντ", "indemni", "dedommag"],
     phrases: ["ηθική βλάβη"],
   },
   {
