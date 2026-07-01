@@ -29,6 +29,13 @@ export interface Classification {
    * Trigger for attaching the real voucher PDF from Odoo to the reply.
    */
   asksForReturnLabel?: boolean;
+  /**
+   * Red-line categories the classifier detected SEMANTICALLY (language-agnostic),
+   * as red-line keys (see redlines.ts). Complements the keyword detector so
+   * escalation works across all customer languages, not just ones with keyword
+   * lists. Merged into the red-line verdict in the pipeline.
+   */
+  escalationReasons?: string[];
   sentiment: "positive" | "neutral" | "negative";
   /** One-line summary of what the customer wants. */
   summary: string;

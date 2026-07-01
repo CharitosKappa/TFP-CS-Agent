@@ -1,6 +1,6 @@
 import { classifyEmail } from "./classify";
 import { generateDraft } from "./draft";
-import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD } from "./redlines";
+import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from "./redlines";
 import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
 import type { Classification, DraftResult, PromptContext } from "./types";
@@ -79,6 +79,14 @@ export async function draftReplyForInbound(
 
   // Red-line scan over subject + body (the subject can carry red-line wording too).
   const redline = detectRedLines(`${input.subject ?? ""}\n${input.incomingMessage}`);
+  // Merge the classifier's SEMANTIC red-line detections — language-agnostic, so it
+  // catches e.g. a compensation demand in German/Polish/… that no keyword list has.
+  // Filtered to known red-line keys so a stray model output can't inject garbage.
+  const validKeys = new Set(RED_LINE_RULES.map((r) => r.key));
+  for (const key of classification.escalationReasons ?? []) {
+    if (validKeys.has(key) && !redline.reasons.includes(key)) redline.reasons.push(key);
+  }
+  if (redline.reasons.length > 0) redline.escalate = true;
   // Low classifier confidence is itself a red line.
   if (classification.confidence < ESCALATION_CONFIDENCE_THRESHOLD) {
     redline.escalate = true;
