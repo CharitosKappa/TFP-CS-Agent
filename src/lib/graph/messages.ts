@@ -280,8 +280,44 @@ export async function createReplyDraft(
   bodyHtml: string,
   opts: ReplyDraftOptions = {},
 ): Promise<{ graphMessageId: string; webLink?: string | null }> {
+  const id = encodeURIComponent(originalGraphMessageId);
+  // createReply marks the source message as READ. For a draft (unsent) we don't
+  // want to silently change the customer message's state — capture it and restore
+  // unread afterwards so the reviewer still sees it as unread.
+  const before = await graphFetch(`${mailboxPath()}/messages/${id}?${odata({ $select: "isRead" })}`);
+  const wasUnread = ((await before.json()) as { isRead?: boolean }).isRead === false;
+
   const draft = await buildReplyDraft(originalGraphMessageId, bodyHtml, opts);
+
+  if (wasUnread) {
+    await graphFetch(
+      `${mailboxPath()}/messages/${id}`,
+      { method: "PATCH", body: JSON.stringify({ isRead: false }) },
+      NO_RETRY,
+    );
+  }
   return { graphMessageId: draft.id, webLink: draft.webLink ?? null };
+}
+
+/**
+ * Flags and/or tags an existing message in Outlook (e.g. the customer's inbound
+ * message), so the conversation stands out in the inbox. `categories` are
+ * Outlook's colour tags; `flagged` sets a follow-up flag. Does not affect the
+ * message's read state.
+ */
+export async function flagMessage(
+  graphMessageId: string,
+  opts: { categories?: string[]; flagged?: boolean } = {},
+): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  if (opts.categories?.length) patch.categories = opts.categories;
+  if (opts.flagged) patch.flag = { flagStatus: "flagged" };
+  if (Object.keys(patch).length === 0) return;
+  await graphFetch(
+    `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+    NO_RETRY,
+  );
 }
 
 /**

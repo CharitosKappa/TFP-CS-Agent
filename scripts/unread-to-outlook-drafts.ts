@@ -8,7 +8,7 @@ import { loadPolicies } from "../src/lib/knowledge/policies";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
 import { fetchOdooAttachment } from "../src/lib/odoo/attachments";
-import { createReplyDraft, fetchInboxMessages, type OutgoingAttachment } from "../src/lib/graph/messages";
+import { createReplyDraft, fetchInboxMessages, flagMessage, type OutgoingAttachment } from "../src/lib/graph/messages";
 import { htmlToText, stripQuotedReply, textToHtml } from "../src/lib/ingestion/html";
 
 // One-off: for every CURRENTLY-UNREAD inbox email in the support mailbox, run the
@@ -94,7 +94,7 @@ async function main() {
         }
       }
 
-      // Flag + tag escalated drafts in Outlook so a human scrutinises them.
+      // Flag + tag escalated cases in Outlook so a human scrutinises them.
       const escalate = result.redline.escalate;
       const categories = escalate
         ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
@@ -104,6 +104,9 @@ async function main() {
         categories,
         flagged: escalate,
       });
+      // Also flag/tag the customer's INBOUND message so the escalation is visible
+      // in the inbox (categories on the draft alone sit in the Drafts folder).
+      if (escalate) await flagMessage(msg.id, { categories, flagged: true });
       drafted++;
       if (escalate) escalated++;
       console.log(
