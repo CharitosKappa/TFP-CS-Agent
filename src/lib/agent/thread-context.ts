@@ -1,4 +1,4 @@
-import { fetchConversationThread } from "../graph/messages";
+import { fetchConversationThread, searchMessagesByParticipant } from "../graph/messages";
 import { makeIsInternal, toBodyText } from "../graph/message-parse";
 
 export interface ThreadHistoryMessage {
@@ -36,4 +36,52 @@ export async function recentMessagesFromThread(
     })
     .filter((m) => m.body.trim().length > 0)
     .slice(-limit);
+}
+
+/**
+ * Summarises the customer's OTHER recent conversations (from Graph, no DB) so a
+ * draft isn't blind to what we've already told them when they open a NEW email
+ * instead of replying in-thread. Excludes the current conversation. Best-effort:
+ * returns undefined on error or when there are no other threads.
+ */
+export async function relatedThreadsFromGraph(
+  email: string,
+  currentConversationId: string,
+  opts: { maxThreads?: number; perThread?: number } = {},
+): Promise<string | undefined> {
+  const { maxThreads = 3, perThread = 4 } = opts;
+  let msgs;
+  try {
+    msgs = await searchMessagesByParticipant(email);
+  } catch {
+    return undefined;
+  }
+  const byConv = new Map<string, typeof msgs>();
+  for (const m of msgs) {
+    if (!m.conversationId || m.conversationId === currentConversationId) continue;
+    const arr = byConv.get(m.conversationId) ?? [];
+    arr.push(m);
+    byConv.set(m.conversationId, arr);
+  }
+  if (byConv.size === 0) return undefined;
+
+  const isInternal = makeIsInternal();
+  const blocks = [...byConv.values()].map((list) => {
+    list.sort(
+      (a, b) => new Date(a.receivedDateTime).getTime() - new Date(b.receivedDateTime).getTime(),
+    );
+    const latest = new Date(list[list.length - 1].receivedDateTime).getTime();
+    const subject = list[list.length - 1].subject ?? "(χωρίς θέμα)";
+    const lines = list
+      .slice(-perThread)
+      .map((m) => {
+        const from = (m.from ?? m.sender)?.emailAddress?.address?.toLowerCase() ?? "";
+        const who = isInternal(from) ? "Εμείς" : "Πελάτης";
+        return `  [${who}] ${toBodyText(m).replace(/\s+/g, " ").slice(0, 300)}`;
+      })
+      .join("\n");
+    return { latest, text: `Θέμα «${subject}»:\n${lines}` };
+  });
+  blocks.sort((a, b) => b.latest - a.latest);
+  return blocks.slice(0, maxThreads).map((b) => b.text).join("\n\n");
 }

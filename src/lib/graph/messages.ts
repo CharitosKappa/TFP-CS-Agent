@@ -72,6 +72,27 @@ export function fetchSentMessages(opts: { limit?: number; since?: Date } = {}) {
   return fetchFolderMessages("sentitems", opts);
 }
 
+/**
+ * Finds messages involving a given customer across ALL folders and threads
+ * (from OR to them), via mailbox search. Used to surface a customer's OTHER
+ * conversations — customers often open a new email instead of replying in the
+ * existing thread, so per-conversation history alone misses the prior exchange.
+ */
+export async function searchMessagesByParticipant(
+  email: string,
+  limit = 40,
+): Promise<GraphMessage[]> {
+  // KQL mail search. $search can't combine with $orderby, so we sort in code.
+  const params = odata({
+    $search: `"participants:${email}"`,
+    $select: SELECT,
+    $top: String(Math.min(limit, 50)),
+  });
+  const res = await graphFetch(`${mailboxPath()}/messages?${params}`);
+  const data = (await res.json()) as GraphListResponse<GraphMessage>;
+  return data.value;
+}
+
 /** Fetches a single message by id from the shared mailbox. */
 export async function fetchMessage(id: string): Promise<GraphMessage> {
   const res = await graphFetch(
@@ -207,12 +228,24 @@ async function buildReplyDraft(
   const draft = (await created.json()) as GraphMessage;
   const draftId = encodeURIComponent(draft.id);
 
+  // createReply pre-fills the draft body with the quoted thread (RE: history),
+  // but its POST response doesn't include that body — fetch it, then prepend our
+  // reply ABOVE it (rather than replacing the body) so the email shows the full
+  // conversation like a normal reply.
+  const composed = await graphFetch(
+    `${mailboxPath()}/messages/${draftId}?${odata({ $select: "body" })}`,
+    {},
+    NO_RETRY,
+  );
+  const quoted = ((await composed.json()) as GraphMessage).body?.content ?? "";
+  const content = quoted ? `${bodyHtml}<br>${quoted}` : bodyHtml;
+
   await graphFetch(
     `${mailboxPath()}/messages/${draftId}`,
     {
       method: "PATCH",
       body: JSON.stringify({
-        body: { contentType: "HTML", content: bodyHtml },
+        body: { contentType: "HTML", content },
         ...(categories?.length ? { categories } : {}),
         ...(flagged ? { flag: { flagStatus: "flagged" }, importance: "high" } : {}),
       }),

@@ -3,7 +3,7 @@ import { getEnv } from "../src/lib/env";
 import { classifyEmail } from "../src/lib/agent/classify";
 import { draftReplyForInbound } from "../src/lib/agent/pipeline";
 import { fetchInboundMedia } from "../src/lib/agent/process";
-import { recentMessagesFromThread } from "../src/lib/agent/thread-context";
+import { recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
 import { loadPolicies } from "../src/lib/knowledge/policies";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
@@ -52,10 +52,15 @@ async function main() {
         msg.id,
         new Date(msg.receivedDateTime),
       );
+      // Cross-thread: the customer's OTHER conversations (they often open a new
+      // email instead of replying), so the draft doesn't repeat what we already
+      // sent about the same issue.
+      const relatedContext = await relatedThreadsFromGraph(from, msg.conversationId);
       const result = await draftReplyForInbound({
         policies,
         caseSummary: "",
         recentMessages,
+        relatedContext,
         incomingMessage: text,
         subject,
         images: media.images,
