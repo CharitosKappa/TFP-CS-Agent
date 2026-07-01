@@ -11,7 +11,7 @@ export interface ShopifyOrderSummary {
   /** The shipping method/courier the customer chose, e.g. "ACS GR", "Box Now". */
   shippingMethod?: string | null;
   trackings: { number?: string | null; company?: string | null; url?: string | null }[];
-  lineItems: { title: string; quantity: number }[];
+  lineItems: { title: string; quantity: number; variantTitle?: string | null }[];
   shippingCity?: string | null;
   /**
    * Shopify's fulfillment/delivery estimates (ISO datetimes) for an unfulfilled
@@ -34,7 +34,7 @@ interface OrderNode {
   shippingLine?: { title: string | null } | null;
   transactions: { gateway: string | null; kind: string; status: string }[];
   fulfillments: { trackingInfo: { number?: string; company?: string; url?: string }[] }[];
-  lineItems: { edges: { node: { title: string; quantity: number } }[] };
+  lineItems: { edges: { node: { title: string; quantity: number; variantTitle?: string | null } }[] };
   shippingAddress?: { city?: string | null } | null;
 }
 
@@ -46,7 +46,7 @@ const ORDER_QUERY = `query($q: String!) {
       shippingLine { title }
       transactions(first: 50) { gateway kind status }
       fulfillments { trackingInfo { number company url } }
-      lineItems(first: 25) { edges { node { title quantity } } }
+      lineItems(first: 25) { edges { node { title quantity variantTitle } } }
       shippingAddress { city }
     } }
   }
@@ -157,7 +157,11 @@ export async function getOrderByName(
     paymentMethod: formatPaymentMethod(node.transactions ?? []),
     shippingMethod: node.shippingLine?.title ?? null,
     trackings: node.fulfillments.flatMap((f) => f.trackingInfo ?? []),
-    lineItems: node.lineItems.edges.map((e) => e.node),
+    lineItems: node.lineItems.edges.map((e) => ({
+      title: e.node.title,
+      quantity: e.node.quantity,
+      variantTitle: e.node.variantTitle ?? null,
+    })),
     shippingCity: node.shippingAddress?.city ?? null,
     deliveryEstimate: await getDeliveryEstimateByOrderName(num),
   };

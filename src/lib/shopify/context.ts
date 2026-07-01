@@ -46,7 +46,9 @@ function formatDeliveryEstimate(
 }
 
 function formatOrder(o: ShopifyOrderSummary): string {
-  const items = o.lineItems.map((li) => `${li.quantity}× ${li.title}`).join(", ");
+  const items = o.lineItems
+    .map((li) => `${li.quantity}× ${li.title}${li.variantTitle ? ` (${li.variantTitle})` : ""}`)
+    .join(", ");
   const tracking = o.trackings
     .filter((t) => t.number || t.url)
     .map((t) => [t.company, t.number, t.url].filter(Boolean).join(" "))
