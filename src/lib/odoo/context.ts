@@ -30,10 +30,13 @@ function formatRma(r: RmaSummary): string {
     .join(", ");
   return [
     `Επιστροφή/RMA ${r.name}${r.createdAt ? ` (${fmtDate(r.createdAt)})` : ""}`,
-    `- Κατάσταση: ${r.state}`,
+    `- Κατάσταση RMA (επιστροφή ΠΡΟΪΟΝΤΩΝ): ${r.state}`,
     r.orderName ? `- Παραγγελία: ${r.orderName}` : "",
     r.refundMethod
-      ? `- Τρόπος επιστροφής χρημάτων: ${r.refundMethod}${r.refundAmount ? ` (${r.refundAmount})` : ""}`
+      ? `- Τρόπος επιστροφής ΧΡΗΜΑΤΩΝ: ${r.refundMethod}${r.refundAmount ? ` (${r.refundAmount})` : ""}`
+      : "",
+    r.refundPaymentStatus
+      ? `- Κατάσταση επιστροφής ΧΡΗΜΑΤΩΝ: ${r.refundPaymentStatus} (ΔΙΑΦΟΡΕΤΙΚΟ από την κατάσταση RMA — μόνο «Paid» σημαίνει ότι έχουν σταλεί τα χρήματα)`
       : "",
     r.returnTrackingUrl
       ? `- Ετικέτα/voucher επιστροφής: έχει εκδοθεί και απεστάλη συνημμένη στο email αποδοχής του RMA`

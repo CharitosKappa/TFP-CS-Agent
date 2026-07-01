@@ -38,6 +38,18 @@ const RETURN_REASON: Record<string, string> = {
   no_input: "Not specified",
 };
 
+// Payment status of the MONEY refund (the reverse move), distinct from the RMA
+// state (which is about the returned PRODUCTS). "paid" = the customer has been
+// refunded; anything else means it hasn't completed yet.
+const REFUND_PAYMENT_STATE: Record<string, string> = {
+  not_paid: "Not paid yet",
+  in_payment: "Registered, not yet paid out",
+  paid: "Paid (completed)",
+  partial: "Partially paid",
+  reversed: "Reversed",
+  invoicing_legacy: "Unknown (legacy)",
+};
+
 export interface RmaLine {
   product: string | null;
   quantity: number;
@@ -56,6 +68,12 @@ export interface RmaSummary {
   customer: string | null;
   refundMethod: string | null;
   refundAmount: number;
+  /**
+   * Status of the MONEY refund itself (distinct from `state`, which is the
+   * PRODUCT return). null when there's no refund move yet. Only "Paid" means the
+   * customer has actually received the money.
+   */
+  refundPaymentStatus: string | null;
   /** Carrier return-label URL, when the RMA has been sent. */
   returnTrackingUrl: string | null;
   /** Odoo ir.attachment id of the courier voucher PDF on this RMA, if present. */
@@ -84,6 +102,7 @@ export interface RmaRecord {
   partner_id: Many2One;
   refund_method: string | false;
   refund_amount: number;
+  reverse_move_payment_state: string | false;
   dhl_locator_url: string | false;
   create_date: string | false;
   line_ids: number[];
@@ -91,7 +110,7 @@ export interface RmaRecord {
 
 const RMA_FIELDS = [
   "name", "state", "order_id", "partner_id", "refund_method",
-  "refund_amount", "dhl_locator_url", "create_date", "line_ids",
+  "refund_amount", "reverse_move_payment_state", "dhl_locator_url", "create_date", "line_ids",
 ];
 
 const m2oName = (v: Many2One): string | null => (Array.isArray(v) ? v[1] : null);
@@ -154,6 +173,9 @@ function toSummary(
     customer: m2oName(r.partner_id),
     refundMethod: r.refund_method ? (REFUND_METHOD[r.refund_method] ?? r.refund_method) : null,
     refundAmount: r.refund_amount ?? 0,
+    refundPaymentStatus: r.reverse_move_payment_state
+      ? (REFUND_PAYMENT_STATE[r.reverse_move_payment_state] ?? r.reverse_move_payment_state)
+      : null,
     returnTrackingUrl: orNull(r.dhl_locator_url),
     voucherAttachmentId,
     createdAt: orNull(r.create_date),
