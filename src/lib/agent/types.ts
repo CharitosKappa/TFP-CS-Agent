@@ -100,11 +100,15 @@ export interface DraftResult {
    */
   voucherAttachmentId?: number;
   /**
-   * Concise INTERNAL description of the action a human must take when this reply
-   * promises a follow-up / needs a decision (e.g. "Open DHL case — #48647").
-   * Used as the title of a Planner follow-up task. Not shown to the customer.
+   * Short essence of the follow-up action (e.g. "Απόφαση goodwill") — becomes a
+   * clean Planner task title (order/customer appended by the caller). Internal.
    */
-  followUpAction?: string;
+  followUpTitle?: string;
+  /**
+   * Detailed internal description of what the human must decide/do — goes in the
+   * Planner task notes. Not shown to the customer.
+   */
+  followUpDetails?: string;
   /**
    * The reply defers/promises a follow-up from us rather than fully resolving
    * the request. On send, routes the conversation to AWAITING_FOLLOWUP so the

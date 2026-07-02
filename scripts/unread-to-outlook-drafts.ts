@@ -112,13 +112,18 @@ async function main() {
       // A follow-up or escalation needs a human to act/decide → create a Planner
       // task so it's tracked on the team board, not just as an email in Drafts.
       if (result.promisesFollowUp || escalate) {
-        const title = result.followUpAction || `Follow-up: ${subject ?? from}`;
+        // Clean, consistent SHORT title: "<essence> — #<order>"; details in notes.
+        const essence = result.followUpTitle || (escalate ? "Έλεγχος/απόφαση" : "Follow-up");
+        const title = classification.orderNumber ? `${essence} — #${classification.orderNumber}` : essence;
         const notes = [
+          result.followUpDetails || "Χρειάζεται ανθρώπινη ενέργεια/απόφαση (βλ. draft).",
+          "",
+          "— Στοιχεία —",
           `Πελάτης: ${from}`,
           subject ? `Θέμα: ${subject}` : "",
           classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
           escalate ? `Escalation: ${result.redline.reasons.join(", ")}` : "",
-          graphMessageId ? `Draft (Outlook): ${webLink ?? "(δες Drafts)"}` : "",
+          `Draft (Outlook): ${webLink ?? "(δες φάκελο Drafts)"}`,
         ].filter(Boolean).join("\n");
         const taskId = await createPlannerTask({ title, description: notes });
         if (taskId) console.log(`  → Planner task: ${title}`);

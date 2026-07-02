@@ -26,10 +26,15 @@ const SUBMIT_REPLY_TOOL: Anthropic.Tool = {
         description:
           "true αν η απάντηση ΔΕΝ επιλύει πλήρως το αίτημα τώρα αλλά υπόσχεται/υπονοεί ότι θα επανέλθουμε ΕΜΕΙΣ (π.χ. «θα το εξετάσουμε και θα επανέλθουμε», διερεύνηση με μεταφορική/3PL, αίτημα ακύρωσης/τροποποίησης που δεν επιβεβαιώνεται άμεσα). false αν η απάντηση είναι αυτοτελής και πλέον περιμένουμε τον πελάτη (ή δεν χρειάζεται τίποτα άλλο από εμάς).",
       },
-      follow_up_action: {
+      follow_up_title: {
         type: "string",
         description:
-          "ΜΟΝΟ όταν promises_follow_up=true ή η υπόθεση θέλει ανθρώπινη ενέργεια/απόφαση: μια ΣΥΝΤΟΜΗ, ΕΣΩΤΕΡΙΚΗ περιγραφή της ενέργειας που πρέπει να κάνει ο συνεργάτης (ΟΧΙ προς τον πελάτη), με τα κρίσιμα στοιχεία — π.χ. «Άνοιξε case με DHL — παραγγελία #48647 (tracking 4725770696)» ή «Απόφαση goodwill/αποζημίωσης — πελάτης Lisa, #48647». Αλλιώς παράλειψέ το.",
+          "ΜΟΝΟ όταν χρειάζεται follow-up/ανθρώπινη ενέργεια: ΠΟΛΥ σύντομη ουσία της ενέργειας (≤ 6 λέξεις, ΧΩΡΙΣ αριθμό παραγγελίας/όνομα — μπαίνουν αυτόματα), π.χ. «Απόφαση goodwill», «Έρευνα DHL», «Επιστροφή χρημάτων IBAN», «Ακύρωση παραγγελίας». Αλλιώς παράλειψέ το.",
+      },
+      follow_up_details: {
+        type: "string",
+        description:
+          "ΜΟΝΟ όταν χρειάζεται follow-up: ΑΝΑΛΥΤΙΚΑ τι πρέπει να αποφασιστεί ή να γίνει από τον συνεργάτη (εσωτερικό, ΟΧΙ προς τον πελάτη) — το ερώτημα/απόφαση, τα κρίσιμα στοιχεία, τι ζητά ο πελάτης, και τυχόν προτεινόμενες επιλογές. 1-4 σύντομες προτάσεις.",
       },
     },
     required: ["reply", "promises_follow_up"],
@@ -39,7 +44,7 @@ const SUBMIT_REPLY_TOOL: Anthropic.Tool = {
 /** Generates the customer-facing reply draft from the bounded context. */
 export async function generateDraft(
   ctx: PromptContext,
-): Promise<{ content: string; promisesFollowUp: boolean; followUpAction?: string }> {
+): Promise<{ content: string; promisesFollowUp: boolean; followUpTitle?: string; followUpDetails?: string }> {
   const env = getEnv();
   const res = await anthropic().messages.create({
     model: env.ANTHROPIC_MODEL,
@@ -57,12 +62,14 @@ export async function generateDraft(
     const input = toolUse.input as {
       reply?: string;
       promises_follow_up?: boolean;
-      follow_up_action?: string;
+      follow_up_title?: string;
+      follow_up_details?: string;
     };
     return {
       content: (input.reply ?? "").trim(),
       promisesFollowUp: input.promises_follow_up === true,
-      followUpAction: input.follow_up_action?.trim() || undefined,
+      followUpTitle: input.follow_up_title?.trim() || undefined,
+      followUpDetails: input.follow_up_details?.trim() || undefined,
     };
   }
 

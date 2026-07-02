@@ -123,7 +123,7 @@ export async function draftReplyForInbound(
     reviewerGuidance: input.reviewerGuidance,
   };
 
-  const { content, promisesFollowUp, followUpAction } = await generateDraft(ctx);
+  const { content, promisesFollowUp, followUpTitle, followUpDetails } = await generateDraft(ctx);
 
   const reasoning =
     `intent=${classification.intent} confidence=${classification.confidence.toFixed(2)} ` +
@@ -132,5 +132,5 @@ export async function draftReplyForInbound(
     (voucherAttachmentId ? " voucher=συνημμένο" : "") +
     (redline.reasons.length ? ` reasons=${redline.reasons.join(",")}` : "");
 
-  return { content, reasoning, classification, redline, promisesFollowUp, followUpAction, voucherAttachmentId };
+  return { content, reasoning, classification, redline, promisesFollowUp, followUpTitle, followUpDetails, voucherAttachmentId };
 }
