@@ -3,6 +3,7 @@ import { anthropicHealthCheck } from "../src/lib/anthropic/client";
 import { graphHealthCheck } from "../src/lib/graph/client";
 import { shopifyHealthCheck } from "../src/lib/shopify/client";
 import { odooHealthCheck } from "../src/lib/odoo/client";
+import { plannerHealthCheck } from "../src/lib/graph/planner";
 
 async function run(
   name: string,
@@ -24,6 +25,7 @@ async function main() {
     run("Microsoft Graph", graphHealthCheck),
     run("Shopify", shopifyHealthCheck),
     run("Odoo", odooHealthCheck),
+    run("Planner", plannerHealthCheck),
   ]);
   if (results.some((ok) => !ok)) process.exit(1);
 }

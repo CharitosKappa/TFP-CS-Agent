@@ -46,6 +46,12 @@ const EnvSchema = z.object({
   ODOO_API_USER: z.string().min(1),
   ODOO_API_KEY: z.string().min(1),
 
+  // Microsoft Planner — follow-up/escalation task board (Graph, app-only via the
+  // existing Graph app + Tasks.ReadWrite.All). Optional: when unset, no tasks are
+  // created (the flow degrades gracefully). IDs are not secrets.
+  PLANNER_PLAN_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  PLANNER_BUCKET_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+
   // Database
   DATABASE_URL: z.string().min(1),
 });

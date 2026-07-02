@@ -9,6 +9,7 @@ import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
 import { fetchOdooAttachment } from "../src/lib/odoo/attachments";
 import { createReplyDraft, fetchInboxMessages, flagMessage, type OutgoingAttachment } from "../src/lib/graph/messages";
+import { createPlannerTask } from "../src/lib/graph/planner";
 import { htmlToText, stripQuotedReply, textToHtml } from "../src/lib/ingestion/html";
 
 // One-off: for every CURRENTLY-UNREAD inbox email in the support mailbox, run the
@@ -99,7 +100,7 @@ async function main() {
       const categories = escalate
         ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
         : undefined;
-      const { graphMessageId } = await createReplyDraft(msg.id, textToHtml(result.content), {
+      const { graphMessageId, webLink } = await createReplyDraft(msg.id, textToHtml(result.content), {
         attachments,
         categories,
         flagged: escalate,
@@ -107,6 +108,21 @@ async function main() {
       // Also flag/tag the customer's INBOUND message so the escalation is visible
       // in the inbox (categories on the draft alone sit in the Drafts folder).
       if (escalate) await flagMessage(msg.id, { categories, flagged: true });
+
+      // A follow-up or escalation needs a human to act/decide → create a Planner
+      // task so it's tracked on the team board, not just as an email in Drafts.
+      if (result.promisesFollowUp || escalate) {
+        const title = result.followUpAction || `Follow-up: ${subject ?? from}`;
+        const notes = [
+          `Πελάτης: ${from}`,
+          subject ? `Θέμα: ${subject}` : "",
+          classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
+          escalate ? `Escalation: ${result.redline.reasons.join(", ")}` : "",
+          graphMessageId ? `Draft (Outlook): ${webLink ?? "(δες Drafts)"}` : "",
+        ].filter(Boolean).join("\n");
+        const taskId = await createPlannerTask({ title, description: notes });
+        if (taskId) console.log(`  → Planner task: ${title}`);
+      }
       drafted++;
       if (escalate) escalated++;
       console.log(

@@ -100,6 +100,12 @@ export interface DraftResult {
    */
   voucherAttachmentId?: number;
   /**
+   * Concise INTERNAL description of the action a human must take when this reply
+   * promises a follow-up / needs a decision (e.g. "Open DHL case — #48647").
+   * Used as the title of a Planner follow-up task. Not shown to the customer.
+   */
+  followUpAction?: string;
+  /**
    * The reply defers/promises a follow-up from us rather than fully resolving
    * the request. On send, routes the conversation to AWAITING_FOLLOWUP so the
    * open obligation isn't lost. Declared by the drafting model.
