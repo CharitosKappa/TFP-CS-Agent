@@ -8,7 +8,14 @@ import { loadPolicies } from "../src/lib/knowledge/policies";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
 import { fetchOdooAttachment } from "../src/lib/odoo/attachments";
-import { createReplyDraft, fetchInboxMessages, flagMessage, type OutgoingAttachment } from "../src/lib/graph/messages";
+import {
+  AI_CATEGORY,
+  DRAFTED_CATEGORY,
+  createReplyDraft,
+  fetchInboxMessages,
+  flagMessage,
+  type OutgoingAttachment,
+} from "../src/lib/graph/messages";
 import { createPlannerTask } from "../src/lib/graph/planner";
 import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 
@@ -25,7 +32,7 @@ async function main() {
   const unread = await fetchInboxMessages({ unreadOnly: true, limit });
   console.log(`Found ${unread.length} unread inbox message(s) (limit ${limit}).`);
 
-  let drafted = 0, skipped = 0, escalated = 0, withVoucher = 0, failed = 0;
+  let drafted = 0, skipped = 0, alreadyDrafted = 0, escalated = 0, withVoucher = 0, failed = 0;
 
   for (const msg of unread) {
     const from = msg.from?.emailAddress?.address?.toLowerCase();
@@ -33,6 +40,12 @@ async function main() {
     try {
       // Inbox should be customer→us, but skip anything from our own mailbox.
       if (!from || from === mailbox) { skipped++; continue; }
+
+      // Idempotency guard: this message already has an agent draft (we tag the
+      // inbound after drafting). Skip so a repeating/scheduled run never
+      // re-drafts it. The tag is per-MESSAGE, so a NEW message in the same
+      // thread (untagged) still gets its own draft.
+      if (msg.categories?.includes(DRAFTED_CATEGORY)) { alreadyDrafted++; continue; }
 
       const rawHtml = msg.body?.content ?? msg.bodyPreview ?? "";
       const text = stripQuotedReply(htmlToText(rawHtml));
@@ -96,19 +109,25 @@ async function main() {
         }
       }
 
-      // Flag + tag escalated cases in Outlook so a human scrutinises them.
+      // Escalation tags surfaced on both the draft and the inbound message.
       const escalate = result.redline.escalate;
-      const categories = escalate
+      const escalationCats = escalate
         ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
-        : undefined;
+        : [];
+      // The draft is AI-generated → always tag it "Ai" (+ escalation tags).
       const { graphMessageId, webLink } = await createReplyDraft(msg.id, formatReplyHtml(result.content), {
         attachments,
-        categories,
+        categories: [AI_CATEGORY, ...escalationCats],
         flagged: escalate,
       });
-      // Also flag/tag the customer's INBOUND message so the escalation is visible
-      // in the inbox (categories on the draft alone sit in the Drafts folder).
-      if (escalate) await flagMessage(msg.id, { categories, flagged: true });
+      // Tag the customer's INBOUND message: the DRAFTED guard (so a scheduled run
+      // won't re-draft it) + escalation tags/flag when escalated (visible in the
+      // inbox — categories on the draft alone sit in the Drafts folder). Merge with
+      // any existing categories so nothing already there is lost.
+      const inboundCategories = Array.from(
+        new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, ...escalationCats]),
+      );
+      await flagMessage(msg.id, { categories: inboundCategories, flagged: escalate });
 
       // A follow-up or escalation needs a human to act/decide → create a Planner
       // task so it's tracked on the team board, not just as an email in Drafts.
@@ -146,7 +165,7 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. drafted=${drafted} skipped=${skipped} failed=${failed} (escalated=${escalated}, voucher=${withVoucher})`);
+  console.log(`\nDone. drafted=${drafted} skipped=${skipped} alreadyDrafted=${alreadyDrafted} failed=${failed} (escalated=${escalated}, voucher=${withVoucher})`);
   if (escalated > 0) {
     console.log(`⚠ ${escalated} draft(s) are flagged ESCALATED — review those especially carefully before sending.`);
   }

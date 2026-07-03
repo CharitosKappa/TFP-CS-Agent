@@ -17,7 +17,18 @@ const SELECT = [
   "receivedDateTime",
   "isRead",
   "internetMessageId",
+  "categories",
 ].join(",");
+
+/**
+ * Category set on a CUSTOMER message once the agent has drafted a reply for it.
+ * The idempotency guard for repeating runs: the drafter skips any unread message
+ * already carrying this tag, so it never double-drafts the same message.
+ */
+export const DRAFTED_CATEGORY = "TFP: Drafted";
+
+/** Category set on every AI-generated draft so a reviewer can tell at a glance. */
+export const AI_CATEGORY = "Ai";
 
 function mailboxPath(): string {
   return `/users/${encodeURIComponent(getEnv().GRAPH_MAILBOX)}`;

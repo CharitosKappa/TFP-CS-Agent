@@ -19,6 +19,8 @@ export interface GraphMessage {
   receivedDateTime: string;
   isRead?: boolean;
   internetMessageId?: string | null;
+  /** Outlook categories (colour tags) on the message. */
+  categories?: string[];
   /** Deep-link to open the message in Outlook on the web (present on createReply). */
   webLink?: string | null;
 }

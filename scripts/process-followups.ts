@@ -3,7 +3,7 @@ import { classifyEmail } from "../src/lib/agent/classify";
 import { draftReplyForInbound } from "../src/lib/agent/pipeline";
 import { recentMessagesFromThread } from "../src/lib/agent/thread-context";
 import { loadPolicies } from "../src/lib/knowledge/policies";
-import { createReplyDraft, fetchMessage } from "../src/lib/graph/messages";
+import { AI_CATEGORY, createReplyDraft, fetchMessage } from "../src/lib/graph/messages";
 import { toBodyText } from "../src/lib/graph/message-parse";
 import { appendTaskNote, getTaskDetails, listPlanTasks } from "../src/lib/graph/planner";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
@@ -69,7 +69,9 @@ async function main() {
         gatherOdoo: (c) => gatherOdooContext({ orderNumber: c.orderNumber, customerEmail: c.customerEmail || from, intent: c.intent, asksForReturnLabel: c.asksForReturnLabel }),
       });
 
-      const { webLink } = await createReplyDraft(msg.id, formatReplyHtml(result.content));
+      const { webLink } = await createReplyDraft(msg.id, formatReplyHtml(result.content), {
+        categories: [AI_CATEGORY], // AI-generated draft
+      });
       await appendTaskNote(task.id, DONE_MARKER);
       drafted++;
       console.log(`  ✓ follow-up draft created${terms ? " [with code]" : ""}\n  ${webLink ?? ""}`);
