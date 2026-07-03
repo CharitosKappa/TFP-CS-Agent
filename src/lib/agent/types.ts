@@ -75,6 +75,12 @@ export interface PromptContext {
   /** Latest active return/RMA for this customer/order, from Odoo (read-only). */
   odooContext?: string;
   /**
+   * A decision/action a human has now made for this case (e.g. "goodwill: €10
+   * code T8K78DK91PW2, min €39, expires 31/7") that this reply must communicate
+   * to the customer. Set by the follow-up processor after the Planner task is done.
+   */
+  resolutionContext?: string;
+  /**
    * Compact summaries of the SAME customer's other recent threads (e.g. ones they
    * opened instead of replying in-thread). Context only — the agent must answer
    * the current thread, not conflate them.

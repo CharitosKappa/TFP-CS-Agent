@@ -26,6 +26,8 @@ export interface DraftReplyInput {
   reviewerGuidance?: string;
   /** Compact summaries of the same customer's other recent threads (context only). */
   relatedContext?: string;
+  /** A human decision this reply must communicate (e.g. goodwill code + terms). */
+  resolutionContext?: string;
   /** Pre-computed classification — skips re-classifying when the caller already did. */
   classification?: Classification;
   /**
@@ -120,6 +122,7 @@ export async function draftReplyForInbound(
     shopifyContext,
     odooContext,
     relatedContext: input.relatedContext,
+    resolutionContext: input.resolutionContext,
     reviewerGuidance: input.reviewerGuidance,
   };
 

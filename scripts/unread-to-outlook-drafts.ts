@@ -10,7 +10,7 @@ import { gatherOdooContext } from "../src/lib/odoo/context";
 import { fetchOdooAttachment } from "../src/lib/odoo/attachments";
 import { createReplyDraft, fetchInboxMessages, flagMessage, type OutgoingAttachment } from "../src/lib/graph/messages";
 import { createPlannerTask } from "../src/lib/graph/planner";
-import { htmlToText, stripQuotedReply, textToHtml } from "../src/lib/ingestion/html";
+import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 
 // One-off: for every CURRENTLY-UNREAD inbox email in the support mailbox, run the
 // agent and leave a reply DRAFT in Outlook (unsent) for a human to review/send.
@@ -100,7 +100,7 @@ async function main() {
       const categories = escalate
         ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
         : undefined;
-      const { graphMessageId, webLink } = await createReplyDraft(msg.id, textToHtml(result.content), {
+      const { graphMessageId, webLink } = await createReplyDraft(msg.id, formatReplyHtml(result.content), {
         attachments,
         categories,
         flagged: escalate,
@@ -124,6 +124,10 @@ async function main() {
           classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
           escalate ? `Escalation: ${result.redline.reasons.join(", ")}` : "",
           `Draft (Outlook): ${webLink ?? "(δες φάκελο Drafts)"}`,
+          `ref: ${msg.id}`, // machine-readable link back to the conversation (do not edit)
+          "──────────────────────────────",
+          "✍️ ΑΠΟΦΑΣΗ / ΕΝΕΡΓΕΙΑ (συμπλήρωσε εδώ ο συνεργάτης, μετά κλείσε το task):",
+          "» ",
         ].filter(Boolean).join("\n");
         const taskId = await createPlannerTask({ title, description: notes });
         if (taskId) console.log(`  → Planner task: ${title}`);

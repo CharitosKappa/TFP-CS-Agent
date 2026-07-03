@@ -63,6 +63,42 @@ export async function createPlannerTask(opts: {
   }
 }
 
+export interface PlannerTask {
+  id: string;
+  title: string;
+  percentComplete: number;
+}
+
+/** Lists tasks in the configured plan. */
+export async function listPlanTasks(): Promise<PlannerTask[]> {
+  const env = getEnv();
+  if (!env.PLANNER_PLAN_ID) return [];
+  const res = await graphFetch(
+    `/planner/plans/${encodeURIComponent(env.PLANNER_PLAN_ID)}/tasks?$select=id,title,percentComplete`,
+  );
+  return ((await res.json()) as { value: PlannerTask[] }).value ?? [];
+}
+
+/** Reads a task's notes/description (+ etag, needed to patch it back). */
+export async function getTaskDetails(
+  taskId: string,
+): Promise<{ description: string; etag: string }> {
+  const res = await graphFetch(`/planner/tasks/${encodeURIComponent(taskId)}/details`);
+  const j = (await res.json()) as { description?: string; "@odata.etag"?: string };
+  return { description: j.description ?? "", etag: j["@odata.etag"] ?? "" };
+}
+
+/** Appends a marker line to a task's notes (used to flag it as processed). */
+export async function appendTaskNote(taskId: string, line: string): Promise<void> {
+  const { description, etag } = await getTaskDetails(taskId);
+  if (!etag || description.includes(line)) return;
+  await graphFetch(
+    `/planner/tasks/${encodeURIComponent(taskId)}/details`,
+    { method: "PATCH", headers: { "If-Match": etag }, body: JSON.stringify({ description: `${description}\n${line}` }) },
+    NO_RETRY,
+  );
+}
+
 /** Verifies Planner access by reading the configured plan. */
 export async function plannerHealthCheck(): Promise<Record<string, unknown>> {
   const env = getEnv();
