@@ -44,7 +44,7 @@ function odata(params: Record<string, string>): string {
 /** Fetches recent messages from a mail folder (newest first), paging up to `limit`. */
 async function fetchFolderMessages(
   folder: string,
-  opts: { limit?: number; since?: Date; unreadOnly?: boolean } = {},
+  opts: { limit?: number; since?: Date; unreadOnly?: boolean; excludeCategory?: string } = {},
 ): Promise<GraphMessage[]> {
   const limit = opts.limit ?? 25;
   const params: Record<string, string> = {
@@ -55,6 +55,12 @@ async function fetchFolderMessages(
   const filters: string[] = [];
   if (opts.since) filters.push(`receivedDateTime ge ${opts.since.toISOString()}`);
   if (opts.unreadOnly) filters.push("isRead eq false");
+  // Exclude messages already carrying a tag (e.g. "TFP: Drafted") so a repeating
+  // run always fetches FRESH work — the newest-N window never fills up with
+  // already-drafted items, so a backlog drains instead of stalling.
+  if (opts.excludeCategory) {
+    filters.push(`not categories/any(c:c eq '${opts.excludeCategory.replace(/'/g, "''")}')`);
+  }
   if (filters.length) params.$filter = filters.join(" and ");
 
   let next: string | null = `${mailboxPath()}/mailFolders/${folder}/messages?${odata(params)}`;
@@ -70,7 +76,9 @@ async function fetchFolderMessages(
 }
 
 /** Recent inbox messages (customer → us), newest first. Pass unreadOnly to filter. */
-export function fetchInboxMessages(opts: { limit?: number; since?: Date; unreadOnly?: boolean } = {}) {
+export function fetchInboxMessages(
+  opts: { limit?: number; since?: Date; unreadOnly?: boolean; excludeCategory?: string } = {},
+) {
   return fetchFolderMessages("inbox", opts);
 }
 

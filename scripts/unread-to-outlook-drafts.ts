@@ -30,7 +30,9 @@ async function main() {
   const mailbox = getEnv().GRAPH_MAILBOX.toLowerCase();
   const policies = await loadPolicies();
 
-  const unread = await fetchInboxMessages({ unreadOnly: true, limit });
+  // Exclude already-drafted at the source so a repeating run always fetches fresh
+  // work (the client-side DRAFTED skip below stays as a backstop).
+  const unread = await fetchInboxMessages({ unreadOnly: true, limit, excludeCategory: DRAFTED_CATEGORY });
   console.log(`Found ${unread.length} unread inbox message(s) (limit ${limit}).`);
 
   let drafted = 0, skipped = 0, alreadyDrafted = 0, escalated = 0, withVoucher = 0, failed = 0;
