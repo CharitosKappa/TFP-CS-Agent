@@ -97,8 +97,11 @@ function inlineFmt(s: string): string {
  * drafting model produces — **bold**, "- "/"• " bullet lists, blank-line
  * paragraphs — and wraps it in the house font so replies look consistent with the
  * rest of the mailbox's mail (Outlook default: Aptos/Calibri 11pt).
+ *
+ * `disclaimer` (optional) is appended as a muted footer, visually separated — the
+ * AI-transparency + human-opt-out note (see agent/disclaimer.ts).
  */
-export function formatReplyHtml(text: string): string {
+export function formatReplyHtml(text: string, disclaimer?: string): string {
   const blocks = text.trim().split(/\n{2,}/);
   const body = blocks
     .map((block) => {
@@ -113,7 +116,10 @@ export function formatReplyHtml(text: string): string {
       return `<p style="margin:0 0 10px 0">${lines.map(inlineFmt).join("<br>")}</p>`;
     })
     .join("");
-  return `<div style="font-family:Aptos,Calibri,Arial,sans-serif; font-size:11pt; color:#242424">${body}</div>`;
+  const footer = disclaimer?.trim()
+    ? `<div style="margin-top:16px; padding-top:10px; border-top:1px solid #e0e0e0; font-size:8pt; color:#8a8a8a">${inlineFmt(disclaimer.trim())}</div>`
+    : "";
+  return `<div style="font-family:Aptos,Calibri,Arial,sans-serif; font-size:11pt; color:#242424">${body}${footer}</div>`;
 }
 
 // Markers that typically begin a quoted reply chain.

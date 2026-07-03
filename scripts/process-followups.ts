@@ -10,6 +10,7 @@ import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
 import { getDiscountByCode, getLegacyDiscountByCode } from "../src/lib/shopify/discounts";
 import { formatReplyHtml } from "../src/lib/ingestion/html";
+import { disclaimerFor } from "../src/lib/agent/disclaimer";
 
 // Poller: finds COMPLETED Planner follow-up tasks whose agent wrote a decision,
 // then drafts a NEW customer reply that communicates that decision (e.g. a
@@ -69,9 +70,11 @@ async function main() {
         gatherOdoo: (c) => gatherOdooContext({ orderNumber: c.orderNumber, customerEmail: c.customerEmail || from, intent: c.intent, asksForReturnLabel: c.asksForReturnLabel }),
       });
 
-      const { webLink } = await createReplyDraft(msg.id, formatReplyHtml(result.content), {
-        categories: [AI_CATEGORY], // AI-generated draft
-      });
+      const { webLink } = await createReplyDraft(
+        msg.id,
+        formatReplyHtml(result.content, disclaimerFor(classification.language)),
+        { categories: [AI_CATEGORY] }, // AI-generated draft
+      );
       await appendTaskNote(task.id, DONE_MARKER);
       drafted++;
       console.log(`  ✓ follow-up draft created${terms ? " [with code]" : ""}\n  ${webLink ?? ""}`);

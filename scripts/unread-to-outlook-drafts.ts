@@ -18,6 +18,7 @@ import {
 } from "../src/lib/graph/messages";
 import { createPlannerTask } from "../src/lib/graph/planner";
 import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
+import { disclaimerFor } from "../src/lib/agent/disclaimer";
 
 // One-off: for every CURRENTLY-UNREAD inbox email in the support mailbox, run the
 // agent and leave a reply DRAFT in Outlook (unsent) for a human to review/send.
@@ -115,11 +116,15 @@ async function main() {
         ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
         : [];
       // The draft is AI-generated → always tag it "Ai" (+ escalation tags).
-      const { graphMessageId, webLink } = await createReplyDraft(msg.id, formatReplyHtml(result.content), {
-        attachments,
-        categories: [AI_CATEGORY, ...escalationCats],
-        flagged: escalate,
-      });
+      const { graphMessageId, webLink } = await createReplyDraft(
+        msg.id,
+        formatReplyHtml(result.content, disclaimerFor(classification.language)),
+        {
+          attachments,
+          categories: [AI_CATEGORY, ...escalationCats],
+          flagged: escalate,
+        },
+      );
       // Tag the customer's INBOUND message: the DRAFTED guard (so a scheduled run
       // won't re-draft it) + escalation tags/flag when escalated (visible in the
       // inbox — categories on the draft alone sit in the Drafts folder). Merge with

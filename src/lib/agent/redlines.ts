@@ -94,6 +94,27 @@ export const RED_LINE_RULES: RedLineRule[] = [
     ],
   },
   {
+    key: "human_requested",
+    description: "Ο πελάτης ζητά να μιλήσει με άνθρωπο / δεν θέλει AI",
+    // Opt-out trigger words we instruct in the disclaimer (per language) + common
+    // ways of asking for a person. The classifier also flags this SEMANTICALLY in
+    // any language, so this list is just the reliable backstop for the exact word.
+    stems: ["ανθρωπ", "εκπροσωπ", "humain", "humano", "operatore"],
+    words: ["human", "mensch", "mens", "agent"],
+    phrases: [
+      "μιλησω με ανθρωπο",
+      "με ανθρωπο",
+      "speak to a human",
+      "talk to a human",
+      "real person",
+      "speak to a person",
+      "not a bot",
+      "no bot",
+      "οχι bot",
+      "οχι ρομποτ",
+    ],
+  },
+  {
     key: "product_defect",
     description: "Ελαττωματικό/χαλασμένο προϊόν ή αίτημα αντικατάστασης",
     // Policy: defect/replacement complaints reach a human even without explicit
