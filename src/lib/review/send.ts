@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { sendReplyInThread, type OutgoingAttachment } from "@/lib/graph/messages";
-import { textToHtml } from "@/lib/ingestion/html";
+import { formatReplyHtml } from "@/lib/ingestion/html";
 import { updateCaseSummary } from "@/lib/agent/summary";
 import { fetchOdooAttachment } from "@/lib/odoo/attachments";
 import { errInfo, log } from "@/lib/observability/logger";
@@ -80,7 +80,7 @@ export async function sendDraftReply(
   }
 
   const mailbox = getEnv().GRAPH_MAILBOX.toLowerCase();
-  const bodyHtml = textToHtml(draft.content);
+  const bodyHtml = formatReplyHtml(draft.content);
 
   // 1. Send via Graph.
   let sent;

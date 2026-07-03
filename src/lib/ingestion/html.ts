@@ -81,6 +81,41 @@ export function textToHtml(text: string): string {
     .join("\n");
 }
 
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Inline formatting for a single line: escape, then **bold** → <strong>, then
+// bare URLs → clickable links. Order matters (escape first).
+function inlineFmt(s: string): string {
+  return escapeHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
+}
+
+/**
+ * Rich text → HTML for an outgoing customer reply. Renders the light markdown the
+ * drafting model produces — **bold**, "- "/"• " bullet lists, blank-line
+ * paragraphs — and wraps it in the house font so replies look consistent with the
+ * rest of the mailbox's mail (Outlook default: Aptos/Calibri 11pt).
+ */
+export function formatReplyHtml(text: string): string {
+  const blocks = text.trim().split(/\n{2,}/);
+  const body = blocks
+    .map((block) => {
+      const lines = block.split("\n").filter((l) => l.trim().length > 0);
+      const isList = lines.length > 0 && lines.every((l) => /^\s*[-•]\s+/.test(l));
+      if (isList) {
+        const items = lines
+          .map((l) => `<li>${inlineFmt(l.replace(/^\s*[-•]\s+/, ""))}</li>`)
+          .join("");
+        return `<ul style="margin:0 0 10px 0; padding-left:22px">${items}</ul>`;
+      }
+      return `<p style="margin:0 0 10px 0">${lines.map(inlineFmt).join("<br>")}</p>`;
+    })
+    .join("");
+  return `<div style="font-family:Aptos,Calibri,Arial,sans-serif; font-size:11pt; color:#242424">${body}</div>`;
+}
+
 // Markers that typically begin a quoted reply chain.
 const QUOTE_MARKERS: RegExp[] = [
   /-----\s*Original Message\s*-----/i,
