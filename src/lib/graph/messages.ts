@@ -12,6 +12,7 @@ const SELECT = [
   "from",
   "sender",
   "toRecipients",
+  "replyTo",
   "body",
   "bodyPreview",
   "receivedDateTime",
@@ -315,6 +316,37 @@ export async function createReplyDraft(
       NO_RETRY,
     );
   }
+  return { graphMessageId: draft.id, webLink: draft.webLink ?? null };
+}
+
+/**
+ * Creates a brand-new reply DRAFT addressed to `to` (a fresh message, not an
+ * in-thread reply), left UNSENT in Drafts. Used for Shopify contact-form mail,
+ * where the inbound arrives from mailer@shopify.com but the reply must go to the
+ * real customer — so replying in-thread would wrongly answer the Shopify mailer.
+ */
+export async function createNewDraft(opts: {
+  to: string;
+  subject: string;
+  bodyHtml: string;
+  categories?: string[];
+  flagged?: boolean;
+}): Promise<{ graphMessageId: string; webLink?: string | null }> {
+  const res = await graphFetch(
+    `${mailboxPath()}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        subject: opts.subject,
+        body: { contentType: "HTML", content: opts.bodyHtml },
+        toRecipients: [{ emailAddress: { address: opts.to } }],
+        ...(opts.categories?.length ? { categories: opts.categories } : {}),
+        ...(opts.flagged ? { flag: { flagStatus: "flagged" }, importance: "high" } : {}),
+      }),
+    },
+    NO_RETRY,
+  );
+  const draft = (await res.json()) as GraphMessage;
   return { graphMessageId: draft.id, webLink: draft.webLink ?? null };
 }
 

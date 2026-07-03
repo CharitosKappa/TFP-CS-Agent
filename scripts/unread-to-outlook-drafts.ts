@@ -11,6 +11,7 @@ import { fetchOdooAttachment } from "../src/lib/odoo/attachments";
 import {
   AI_CATEGORY,
   DRAFTED_CATEGORY,
+  createNewDraft,
   createReplyDraft,
   fetchInboxMessages,
   flagMessage,
@@ -19,6 +20,11 @@ import {
 import { createPlannerTask } from "../src/lib/graph/planner";
 import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 import { disclaimerFor } from "../src/lib/agent/disclaimer";
+import {
+  contactFormSubject,
+  isShopifyContactForm,
+  parseShopifyContactForm,
+} from "../src/lib/ingestion/contact-form";
 
 // One-off: for every CURRENTLY-UNREAD inbox email in the support mailbox, run the
 // agent and leave a reply DRAFT in Outlook (unsent) for a human to review/send.
@@ -51,7 +57,20 @@ async function main() {
       if (msg.categories?.includes(DRAFTED_CATEGORY)) { alreadyDrafted++; continue; }
 
       const rawHtml = msg.body?.content ?? msg.bodyPreview ?? "";
-      const text = stripQuotedReply(htmlToText(rawHtml));
+      const bodyText = htmlToText(rawHtml);
+
+      // Shopify contact-form: the inbound is from mailer@shopify.com, but the real
+      // customer (+ their message) is in the Reply-To header / body. We must reply
+      // to the customer as a NEW email, not in-thread to the Shopify mailer.
+      const isContactForm = isShopifyContactForm(from, bodyText);
+      const parsed = isContactForm ? parseShopifyContactForm(bodyText) : null;
+      const customer =
+        (isContactForm
+          ? msg.replyTo?.[0]?.emailAddress?.address?.toLowerCase() || parsed?.email
+          : from) || from;
+      const text = isContactForm
+        ? parsed?.message?.trim() || stripQuotedReply(bodyText)
+        : stripQuotedReply(bodyText);
       if (!text.trim()) { console.log(`- skip (empty body): ${subject}`); skipped++; continue; }
 
       const classification = await classifyEmail(text, subject);
@@ -72,7 +91,7 @@ async function main() {
       // Cross-thread: the customer's OTHER conversations (they often open a new
       // email instead of replying), so the draft doesn't repeat what we already
       // sent about the same issue.
-      const relatedContext = await relatedThreadsFromGraph(from, msg.conversationId);
+      const relatedContext = await relatedThreadsFromGraph(customer, msg.conversationId);
       const result = await draftReplyForInbound({
         policies,
         caseSummary: "",
@@ -86,7 +105,7 @@ async function main() {
         gatherShopify: (c, { productHandles }) =>
           gatherShopifyContext({
             orderNumber: c.orderNumber,
-            customerEmail: c.customerEmail || from,
+            customerEmail: c.customerEmail || customer,
             couponCode: c.couponCode,
             intent: c.intent,
             productHandles,
@@ -94,7 +113,7 @@ async function main() {
         gatherOdoo: (c) =>
           gatherOdooContext({
             orderNumber: c.orderNumber,
-            customerEmail: c.customerEmail || from,
+            customerEmail: c.customerEmail || customer,
             intent: c.intent,
             asksForReturnLabel: c.asksForReturnLabel,
           }),
@@ -118,15 +137,26 @@ async function main() {
         ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
         : [];
       // The draft is AI-generated → always tag it "Ai" (+ escalation tags).
-      const { graphMessageId, webLink } = await createReplyDraft(
-        msg.id,
-        formatReplyHtml(result.content, disclaimerFor(classification.language)),
-        {
-          attachments,
-          categories: [AI_CATEGORY, ...escalationCats],
+      const bodyHtml = formatReplyHtml(result.content, disclaimerFor(classification.language));
+      const draftCategories = [AI_CATEGORY, ...escalationCats];
+      let graphMessageId: string;
+      let webLink: string | null | undefined;
+      if (isContactForm) {
+        // Fresh email TO the real customer (not an in-thread reply to the mailer).
+        ({ graphMessageId, webLink } = await createNewDraft({
+          to: customer,
+          subject: contactFormSubject(classification.language),
+          bodyHtml,
+          categories: draftCategories,
           flagged: escalate,
-        },
-      );
+        }));
+      } else {
+        ({ graphMessageId, webLink } = await createReplyDraft(msg.id, bodyHtml, {
+          attachments,
+          categories: draftCategories,
+          flagged: escalate,
+        }));
+      }
       // Tag the customer's INBOUND message: the DRAFTED guard (so a scheduled run
       // won't re-draft it) + escalation tags/flag when escalated (visible in the
       // inbox — categories on the draft alone sit in the Drafts folder). Merge with
@@ -146,7 +176,7 @@ async function main() {
           result.followUpDetails || "Χρειάζεται ανθρώπινη ενέργεια/απόφαση (βλ. draft).",
           "",
           "— Στοιχεία —",
-          `Πελάτης: ${from}`,
+          `Πελάτης: ${customer}${isContactForm ? " (Shopify contact form)" : ""}`,
           subject ? `Θέμα: ${subject}` : "",
           classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
           escalate ? `Escalation: ${result.redline.reasons.join(", ")}` : "",
@@ -162,7 +192,7 @@ async function main() {
       drafted++;
       if (escalate) escalated++;
       console.log(
-        `✓ draft: «${subject ?? "(no subject)"}» from ${from}` +
+        `✓ draft: «${subject ?? "(no subject)"}» → ${customer}${isContactForm ? " [contact-form]" : ""}` +
           `${result.redline.escalate ? ` [ESCALATED: ${result.redline.reasons.join(",")}]` : ""}` +
           `${attachments.length ? " [voucher attached]" : ""} → ${graphMessageId.slice(0, 12)}…`,
       );

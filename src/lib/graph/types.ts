@@ -14,6 +14,8 @@ export interface GraphMessage {
   from?: GraphRecipient | null;
   sender?: GraphRecipient | null;
   toRecipients?: GraphRecipient[];
+  /** Reply-To header — for Shopify contact-form mail, the real customer's address. */
+  replyTo?: GraphRecipient[];
   body?: { contentType?: string; content?: string } | null;
   bodyPreview?: string | null;
   receivedDateTime: string;
