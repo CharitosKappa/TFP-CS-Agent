@@ -1,0 +1,52 @@
+name: CS agent (drafts + follow-ups)
+
+# Runs the Outlook/Planner-native agent on a schedule: drafts replies for unread
+# customer mail and processes Planner follow-up decisions. Draft-only — it never
+# sends; a human reviews and sends from Outlook. Idempotent (per-message
+# "TFP: Drafted" tag + Planner [AGENT_DRAFTED] marker), so repeated runs are safe.
+
+on:
+  schedule:
+    - cron: "17 * * * *" # hourly at :17 — off the congested :00 slot to cut cron delay (UTC)
+  workflow_dispatch: {} # manual "Run workflow" button for on-demand runs
+
+# Never let two runs overlap (a slow run + the next tick).
+concurrency:
+  group: cs-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest # ×1 billing (Windows/macOS cost more)
+    timeout-minutes: 20
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+      GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+      GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+      GRAPH_MAILBOX: ${{ secrets.GRAPH_MAILBOX }}
+      INTERNAL_EMAIL_DOMAINS: ${{ secrets.INTERNAL_EMAIL_DOMAINS }}
+      SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+      SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+      SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+      ODOO_URL: ${{ secrets.ODOO_URL }}
+      ODOO_DB: ${{ secrets.ODOO_DB }}
+      ODOO_API_USER: ${{ secrets.ODOO_API_USER }}
+      ODOO_API_KEY: ${{ secrets.ODOO_API_KEY }}
+      PLANNER_PLAN_ID: ${{ secrets.PLANNER_PLAN_ID }}
+      PLANNER_BUCKET_ID: ${{ secrets.PLANNER_BUCKET_ID }}
+      # ANTHROPIC_MODEL / ANTHROPIC_TRIAGE_MODEL / SHOPIFY_API_VERSION are omitted
+      # on purpose — the code has sane defaults, and an empty secret would override
+      # them with "". Add them as secrets only if you want to pin different values.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Draft replies for unread mail
+        run: npm run drafts
+      - name: Process Planner follow-ups
+        if: always() # run even if drafting failed
+        run: npm run followups
