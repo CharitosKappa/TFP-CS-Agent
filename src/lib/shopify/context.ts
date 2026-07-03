@@ -6,6 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
+import { getProductByHandle, type ShopifyProductSummary } from "./products";
 
 export function fmtDate(iso: string): string {
   return iso.slice(0, 10);
@@ -94,6 +95,18 @@ function formatCustomer(c: ShopifyCustomerSummary): string {
     .join("\n");
 }
 
+function formatProduct(p: ShopifyProductSummary): string {
+  // Fit Advice drives size guidance (e.g. "true to size" → for a half/between size,
+  // recommend the larger one — see knowledge/60-products-sizing.md).
+  return [
+    `Προϊόν: ${p.title}`,
+    p.fitAdvice ? `- Fit Advice (εφαρμογή): ${p.fitAdvice}` : "",
+    p.fitAndSizing ? `- Οδηγίες μεγέθους/εφαρμογής: ${p.fitAndSizing}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /**
  * Fetches the Shopify data relevant to a message (fresh, on-demand) and formats
  * it as a compact text block for the prompt. Best-effort: never throws — a
@@ -104,6 +117,8 @@ export async function gatherShopifyContext(input: {
   customerEmail?: string;
   couponCode?: string;
   intent?: Intent;
+  /** Product handles from links in the customer's message (for fit/size advice). */
+  productHandles?: string[];
 }): Promise<string | undefined> {
   const parts: string[] = [];
   try {
@@ -155,6 +170,19 @@ export async function gatherShopifyContext(input: {
             `σε επιλεγμένα προϊόντα/για περιορισμένο διάστημα/με ελάχιστη αξία, ζήτησε τον ` +
             `σύνδεσμο του προϊόντος και την πηγή του κωδικού, και πρότεινε έλεγχο από συνάδελφο.`,
       );
+    }
+    // Products the customer linked to (fit/size questions) — surface each product's
+    // Fit Advice so the reply can advise on sizing from real data. Isolated per
+    // handle so one failing lookup doesn't block the rest.
+    if (input.productHandles?.length) {
+      const products = await Promise.all(
+        input.productHandles
+          .slice(0, 3)
+          .map((h) => getProductByHandle(h).catch(() => null)),
+      );
+      for (const p of products) {
+        if (p) parts.push(formatProduct(p));
+      }
     }
   } catch (e) {
     console.error("shopify lookup failed:", e);

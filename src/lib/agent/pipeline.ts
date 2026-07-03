@@ -3,6 +3,7 @@ import { generateDraft } from "./draft";
 import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from "./redlines";
 import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
+import { extractProductHandles } from "../shopify/products";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
 export interface DraftReplyInput {
@@ -32,9 +33,13 @@ export interface DraftReplyInput {
   classification?: Classification;
   /**
    * Lazily fetches Shopify context once the message is classified — gets the
-   * extracted orderNumber/email so we only query what the message is about.
+   * extracted orderNumber/email so we only query what the message is about, plus
+   * any product handles found in the message body (for fit/size advice).
    */
-  gatherShopify?: (classification: Classification) => Promise<string | undefined>;
+  gatherShopify?: (
+    classification: Classification,
+    extras: { productHandles: string[] },
+  ) => Promise<string | undefined>;
   /** Lazily fetches Odoo/RMA context once classified (text + optional voucher ref). */
   gatherOdoo?: (classification: Classification) => Promise<OdooGatherResult | undefined>;
 }
@@ -58,7 +63,8 @@ export async function draftReplyForInbound(
     (async () => {
       if (!shopifyContext && input.gatherShopify) {
         try {
-          shopifyContext = await input.gatherShopify(classification);
+          const productHandles = extractProductHandles(input.incomingMessage);
+          shopifyContext = await input.gatherShopify(classification, { productHandles });
         } catch (e) {
           console.error("shopify gather failed:", e);
         }

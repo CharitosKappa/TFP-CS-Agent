@@ -67,12 +67,13 @@ async function main() {
         images: media.images,
         attachmentSummary: media.summary,
         classification,
-        gatherShopify: (c) =>
+        gatherShopify: (c, { productHandles }) =>
           gatherShopifyContext({
             orderNumber: c.orderNumber,
             customerEmail: c.customerEmail || from,
             couponCode: c.couponCode,
             intent: c.intent,
+            productHandles,
           }),
         gatherOdoo: (c) =>
           gatherOdooContext({
