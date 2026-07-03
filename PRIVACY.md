@@ -1,56 +1,45 @@
 # Data Privacy & GDPR — TFP Customer Service Agent
 
 The agent processes customer personal data (email addresses, names, and the
-contents of customer emails). This document records what is stored, why, and how
-data-subject rights are honored. Treat it as the working privacy notice for the
-tool; the legal/retention values must be confirmed by TFP's DPO.
+contents of customer emails). This document records what is processed, why, and
+how data-subject rights are honored. Treat it as the working privacy notice for
+the tool; the legal/retention values must be confirmed by TFP's DPO.
 
-## What is stored (and where)
-| Data | Table | Purpose |
-|------|-------|---------|
-| Customer email, name | `Conversation` | Threading + replying to the customer |
-| Email subject, **plain-text** body | `Message` | Context for drafting + review |
-| AI draft + classification + reasoning | `Draft` | Human review |
-| Reviewer decisions + notes | `Review` | Accountability |
-| Rolling case summary | `Conversation.summary` | Bounded context for follow-ups |
-| Action trail | `AuditLog` | Audit / accountability |
+## Where data lives
+The agent is **stateless — it has no database of its own.** It reads customer
+mail from the Microsoft 365 shared mailbox, gathers context from Shopify/Odoo,
+and writes its output back into Microsoft 365 (an Outlook **draft** reply, plus a
+**Planner task** for follow-ups/escalations). All persistent customer data
+therefore lives in **Microsoft 365** (and the source systems Shopify/Odoo), whose
+retention, access control and erasure are governed by TFP's existing M365/Shopify/
+Odoo policies and DPAs — not by this tool.
 
-**Data minimization:** the raw HTML body is intentionally **not** stored — only
-the cleaned plain text (`Message.bodyText`) the agent and reviewers actually use.
+| Data | Where it lives |
+|------|----------------|
+| Customer email, name, message body | Microsoft 365 mailbox (Outlook) |
+| AI draft reply | Outlook **Drafts** folder (until a human sends or discards it) |
+| Follow-up / escalation notes | Microsoft Planner task |
+| Order / customer / RMA lookups | Shopify + Odoo (read-only; not copied out) |
 
 ## Sub-processors
 Customer message content is sent to:
-- **Anthropic (Claude)** — classification, drafting, summarization.
-- **Microsoft Graph** — reading/sending mail (the data is already in M365).
+- **Anthropic (Claude)** — classification, drafting (email text + attached images).
+- **Microsoft Graph** — reading mail, creating drafts, creating Planner tasks (the
+  data is already in M365).
 - **Shopify Admin API** — order/customer lookups (order numbers, emails).
+- **Odoo** (self-hosted, TFP-controlled) — RMA/order lookups.
 
-Ensure DPAs are in place with each and that this is reflected in TFP's records of
-processing and customer-facing privacy policy.
+Ensure DPAs are in place with Anthropic, Microsoft and Shopify and that this is
+reflected in TFP's records of processing and customer-facing privacy policy.
 
-## Retention
-Conversations are purged after a configurable window of inactivity
-(`RETENTION_DAYS`, default 730 days — set to TFP's policy). Deletes cascade to all
-messages, drafts, reviews and audit logs.
-
-```bash
-npm run retention -- --dry-run     # report what would be deleted
-npm run retention                  # purge using RETENTION_DAYS
-npm run retention -- --days 365    # override the window
-```
-Schedule this (e.g. a daily cron / scheduled job) so retention is enforced
-automatically.
-
-## Data-subject requests (DSAR)
-```bash
-npm run gdpr export <email>   # Art.15/20 — export everything stored for a customer (JSON)
-npm run gdpr erase  <email>   # Art.17 — permanently delete all of a customer's data
-```
-Erasure cascades across conversations, messages, drafts, reviews and audit logs.
+## Retention & data-subject requests
+Because the agent stores nothing itself, retention and DSARs (access / export /
+erasure, GDPR Art. 15/17/20) are served **from Microsoft 365, Shopify and Odoo**
+using their native tooling and TFP's existing DPO processes. There is no separate
+purge/export script in this repo.
 
 ## Notes / limitations
-- Erasure/retention act on data in this system only — copies that already left to
-  sub-processors (e.g. model providers' transient logs) are governed by their own
-  retention; rely on the DPAs above.
-- There is no automated DSAR intake; requests are run manually via the scripts.
-- GDPR/erasure mentions in inbound email are also flagged as a red line so a human
-  handles them (see `src/lib/agent/redlines.ts`).
+- Copies that already left to sub-processors (e.g. model providers' transient
+  logs) are governed by their own retention; rely on the DPAs above.
+- GDPR/erasure mentions in inbound email are flagged as a **red line** so a human
+  handles them via a Planner escalation (see `src/lib/agent/redlines.ts`).

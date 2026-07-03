@@ -2,7 +2,7 @@ import "dotenv/config";
 import { getEnv } from "../src/lib/env";
 import { classifyEmail } from "../src/lib/agent/classify";
 import { draftReplyForInbound } from "../src/lib/agent/pipeline";
-import { fetchInboundMedia } from "../src/lib/agent/process";
+import { fetchInboundMedia } from "../src/lib/agent/inbound-media";
 import { recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
 import { loadPolicies } from "../src/lib/knowledge/policies";
 import { gatherShopifyContext } from "../src/lib/shopify/context";

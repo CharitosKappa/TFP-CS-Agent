@@ -2,8 +2,8 @@ import { z } from "zod";
 
 /**
  * Typed, validated environment configuration.
- * Parsing is lazy (via getEnv) so `next build` doesn't fail when secrets are
- * absent — only code paths that actually call an external service require them.
+ * Parsing is lazy (via getEnv) so importing a module doesn't fail when secrets
+ * are absent — only code paths that actually call an external service require them.
  */
 // In a .env, an unset optional var is usually present-but-empty ("") rather than
 // absent. Treat "" as undefined so .optional()/.url() don't reject blank lines.
@@ -26,9 +26,6 @@ const EnvSchema = z.object({
   // this is only for aliases on a DIFFERENT domain. Used to tell our own
   // addresses apart from the customer when threading (see ingestion/sync.ts).
   INTERNAL_EMAIL_DOMAINS: z.preprocess(emptyToUndefined, z.string().optional()),
-  // Optional — only needed for the webhook subscription (manual sync works without these).
-  GRAPH_WEBHOOK_NOTIFICATION_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
-  GRAPH_WEBHOOK_CLIENT_STATE: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // Shopify — Dev Dashboard custom app. The Admin API token is fetched at runtime
   // via the OAuth client_credentials grant from these client id/secret (see
@@ -51,16 +48,7 @@ const EnvSchema = z.object({
   // created (the flow degrades gracefully). IDs are not secrets.
   PLANNER_PLAN_ID: z.preprocess(emptyToUndefined, z.string().optional()),
   PLANNER_BUCKET_ID: z.preprocess(emptyToUndefined, z.string().optional()),
-
-  // Database
-  DATABASE_URL: z.string().min(1),
 });
-
-// NOTE: Auth (Entra ID SSO), the machine-route secret and the data-retention
-// window are read directly from process.env (see src/auth.ts, src/lib/auth/*,
-// src/lib/privacy/retention.ts) and documented in .env.example — they are
-// intentionally NOT funnelled through getEnv() so the dashboard/middleware don't
-// require the full external-service config just to render.
 
 export type Env = z.infer<typeof EnvSchema>;
 
