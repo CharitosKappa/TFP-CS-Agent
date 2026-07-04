@@ -42,6 +42,25 @@ function odata(params: Record<string, string>): string {
     .join("&");
 }
 
+/**
+ * Follows `@odata.nextLink` from a first request, accumulating messages until
+ * `limit` is reached or the pages run out. Graph caps `$top` at 50, so anything
+ * past the first page needs this loop — without it, history is silently
+ * truncated to one page.
+ */
+async function pageMessages(firstRel: string, limit: number): Promise<GraphMessage[]> {
+  let next: string | null = firstRel;
+  const out: GraphMessage[] = [];
+  while (next && out.length < limit) {
+    const rel: string = next.startsWith("http") ? next.slice(GRAPH_BASE.length) : next;
+    const res = await graphFetch(rel);
+    const data = (await res.json()) as GraphListResponse<GraphMessage>;
+    out.push(...data.value);
+    next = data["@odata.nextLink"] ?? null;
+  }
+  return out.slice(0, limit);
+}
+
 /** Fetches recent messages from a mail folder (newest first), paging up to `limit`. */
 async function fetchFolderMessages(
   folder: string,
@@ -64,16 +83,7 @@ async function fetchFolderMessages(
   }
   if (filters.length) params.$filter = filters.join(" and ");
 
-  let next: string | null = `${mailboxPath()}/mailFolders/${folder}/messages?${odata(params)}`;
-  const out: GraphMessage[] = [];
-  while (next && out.length < limit) {
-    const rel: string = next.startsWith("http") ? next.slice(GRAPH_BASE.length) : next;
-    const res = await graphFetch(rel);
-    const data = (await res.json()) as GraphListResponse<GraphMessage>;
-    out.push(...data.value);
-    next = data["@odata.nextLink"] ?? null;
-  }
-  return out.slice(0, limit);
+  return pageMessages(`${mailboxPath()}/mailFolders/${folder}/messages?${odata(params)}`, limit);
 }
 
 /** Recent inbox messages (customer → us), newest first. Pass unreadOnly to filter. */
@@ -100,17 +110,17 @@ export function fetchSentMessages(opts: { limit?: number; since?: Date } = {}) {
  */
 export async function searchMessagesByParticipant(
   email: string,
-  limit = 40,
+  limit = 100,
 ): Promise<GraphMessage[]> {
-  // KQL mail search. $search can't combine with $orderby, so we sort in code.
+  // KQL mail search. $search can't combine with $orderby, so the caller sorts in
+  // code — which means we must page past the first 50 results, or a busy
+  // customer's most recent other-thread is silently missed.
   const params = odata({
     $search: `"participants:${email}"`,
     $select: SELECT,
-    $top: String(Math.min(limit, 50)),
+    $top: "50",
   });
-  const res = await graphFetch(`${mailboxPath()}/messages?${params}`);
-  const data = (await res.json()) as GraphListResponse<GraphMessage>;
-  return data.value;
+  return pageMessages(`${mailboxPath()}/messages?${params}`, limit);
 }
 
 /** Fetches a single message by id from the shared mailbox. */
@@ -406,16 +416,18 @@ export async function sendReplyInThread(
  */
 export async function fetchConversationThread(
   conversationId: string,
-  limit = 50,
+  limit = 250,
 ): Promise<GraphMessage[]> {
   const params: Record<string, string> = {
     $select: SELECT,
-    $top: String(Math.min(limit, 50)),
-    $filter: `conversationId eq '${conversationId}'`,
+    $top: "50",
+    $filter: `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
   };
-  const res = await graphFetch(`${mailboxPath()}/messages?${odata(params)}`);
-  const data = (await res.json()) as GraphListResponse<GraphMessage>;
-  return [...data.value].sort(
+  // Page the whole thread (Graph's default order for a $filter isn't guaranteed
+  // chronological, and one page caps at 50), then sort oldest-first in memory so
+  // a caller slicing the newest N actually gets the latest messages.
+  const all = await pageMessages(`${mailboxPath()}/messages?${odata(params)}`, limit);
+  return all.sort(
     (a, b) =>
       new Date(a.receivedDateTime).getTime() - new Date(b.receivedDateTime).getTime(),
   );
