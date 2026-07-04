@@ -201,7 +201,7 @@ export async function hydrateRma(r: RmaRecord): Promise<RmaSummary> {
   return toSummary(r, lines, vouchers.get(r.id) ?? null);
 }
 
-/** Records of all RMAs linked to a sales order, by the order's reference (e.g. "S00123"). */
+/** Records of all RMAs linked to a sales order, by the order's reference (e.g. "50530"). */
 export async function findRmaRecordsByOrder(orderName: string): Promise<RmaRecord[]> {
   return searchRmaRecords([["order_id.name", "=", orderName]]);
 }

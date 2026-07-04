@@ -99,8 +99,11 @@ export const RED_LINE_RULES: RedLineRule[] = [
     // Opt-out trigger words we instruct in the disclaimer (per language) + common
     // ways of asking for a person. The classifier also flags this SEMANTICALLY in
     // any language, so this list is just the reliable backstop for the exact word.
+    // "mens" (nl) and "agent" were dropped: they false-match ordinary English in a
+    // fashion shop ("mens clothing", "travel agent"). The semantic path still
+    // catches those opt-out requests — including a Dutch customer asking for a mens.
     stems: ["ανθρωπ", "εκπροσωπ", "humain", "humano", "operatore"],
-    words: ["human", "mensch", "mens", "agent"],
+    words: ["human", "mensch"],
     phrases: [
       "μιλησω με ανθρωπο",
       "με ανθρωπο",
