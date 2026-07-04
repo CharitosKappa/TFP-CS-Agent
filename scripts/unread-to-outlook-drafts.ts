@@ -2,6 +2,7 @@ import "dotenv/config";
 import { getEnv } from "../src/lib/env";
 import { classifyEmail } from "../src/lib/agent/classify";
 import { draftReplyForInbound } from "../src/lib/agent/pipeline";
+import { judgeSameRequest } from "../src/lib/agent/dedup";
 import { fetchInboundMedia } from "../src/lib/agent/inbound-media";
 import { recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
 import { loadPolicies } from "../src/lib/knowledge/policies";
@@ -17,6 +18,7 @@ import {
   flagMessage,
   type OutgoingAttachment,
 } from "../src/lib/graph/messages";
+import type { GraphMessage } from "../src/lib/graph/types";
 import { createPlannerTask } from "../src/lib/graph/planner";
 import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 import { disclaimerFor } from "../src/lib/agent/disclaimer";
@@ -53,27 +55,24 @@ async function main() {
   const unread = await fetchInboxMessages({ unreadOnly: true, limit, excludeCategory: DRAFTED_CATEGORY });
   console.log(`Found ${unread.length} unread inbox message(s) (limit ${limit}).`);
 
-  let drafted = 0, skipped = 0, alreadyDrafted = 0, escalated = 0, withVoucher = 0, failed = 0;
+  let drafted = 0, skipped = 0, alreadyDrafted = 0, escalated = 0, withVoucher = 0, failed = 0, consolidatedDupes = 0;
 
+  // ── Resolve each message once (sender/customer/body), dropping our own mail,
+  // already-drafted messages, and empty bodies. Doing this up front lets us group
+  // by customer before drafting.
+  const resolved: { msg: GraphMessage; customer: string; text: string; isContactForm: boolean }[] = [];
   for (const msg of unread) {
-    const from = msg.from?.emailAddress?.address?.toLowerCase();
-    const subject = msg.subject ?? undefined;
     try {
+      const from = msg.from?.emailAddress?.address?.toLowerCase();
       // Inbox should be customer→us, but skip anything from our own mailbox.
       if (!from || from === mailbox) { skipped++; continue; }
-
-      // Idempotency guard: this message already has an agent draft (we tag the
-      // inbound after drafting). Skip so a repeating/scheduled run never
-      // re-drafts it. The tag is per-MESSAGE, so a NEW message in the same
-      // thread (untagged) still gets its own draft.
+      // Idempotency guard: already has an agent draft (tag is per-MESSAGE, so a
+      // NEW message in the same thread still gets its own draft).
       if (msg.categories?.includes(DRAFTED_CATEGORY)) { alreadyDrafted++; continue; }
 
-      const rawHtml = msg.body?.content ?? msg.bodyPreview ?? "";
-      const bodyText = htmlToText(rawHtml);
-
-      // Shopify contact-form: the inbound is from mailer@shopify.com, but the real
-      // customer (+ their message) is in the Reply-To header / body. We must reply
-      // to the customer as a NEW email, not in-thread to the Shopify mailer.
+      const bodyText = htmlToText(msg.body?.content ?? msg.bodyPreview ?? "");
+      // Shopify contact-form: inbound is from mailer@shopify.com, but the real
+      // customer (+ message) is in Reply-To / body — reply to them as a NEW email.
       const isContactForm = isShopifyContactForm(from, bodyText);
       const parsed = isContactForm ? parseShopifyContactForm(bodyText) : null;
       const customer =
@@ -84,6 +83,54 @@ async function main() {
         ? stripQuotedReply(parsed?.message ?? "").trim() || stripQuotedReply(bodyText)
         : stripQuotedReply(bodyText);
       if (!text.trim()) { console.log(`- skip (empty body): ${msg.id.slice(0, 12)}…`); skipped++; continue; }
+      resolved.push({ msg, customer, text, isContactForm });
+    } catch (e) {
+      failed++;
+      console.error(`✗ resolve failed: ${msg.id.slice(0, 12)}… — ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  // ── Consolidate same-request duplicates: when ONE customer sent several messages
+  // in this batch that are the SAME request, draft ONCE (the newest) + escalate and
+  // fold the rest — so the customer never gets two disconnected replies. Conservative:
+  // only folds when the model is confident they're the same (see judgeSameRequest).
+  const foldedInto = new Map<string, string>();  // duplicate msg id -> kept msg id
+  const foldedCount = new Map<string, number>(); // kept msg id -> # of folded duplicates
+  const byCustomer = new Map<string, typeof resolved>();
+  for (const r of resolved) {
+    const arr = byCustomer.get(r.customer) ?? [];
+    arr.push(r);
+    byCustomer.set(r.customer, arr);
+  }
+  for (const [cust, items] of byCustomer) {
+    if (items.length < 2) continue;
+    const same = await judgeSameRequest(items.map((i) => ({ subject: i.msg.subject ?? undefined, body: i.text })));
+    if (!same) continue;
+    const sorted = [...items].sort(
+      (a, b) => new Date(b.msg.receivedDateTime).getTime() - new Date(a.msg.receivedDateTime).getTime(),
+    );
+    const keep = sorted[0];
+    foldedCount.set(keep.msg.id, sorted.length - 1);
+    for (const d of sorted.slice(1)) foldedInto.set(d.msg.id, keep.msg.id);
+    console.log(`↯ ${sorted.length} same-request messages from ${maskEmail(cust)} → drafting once + escalating`);
+  }
+
+  for (const { msg, customer, text, isContactForm } of resolved) {
+    const subject = msg.subject ?? undefined;
+    try {
+      // Folded duplicate: a sibling message (same request) is being drafted once.
+      // Don't draft again — tag DRAFTED + escalate so it isn't re-drafted and the
+      // reviewer sees it's part of a consolidated case.
+      const keptId = foldedInto.get(msg.id);
+      if (keptId) {
+        const cats = Array.from(new Set([
+          ...(msg.categories ?? []), DRAFTED_CATEGORY, "TFP: Escalate", "reason: consolidated_duplicate",
+        ]));
+        await flagMessage(msg.id, { categories: cats, flagged: true });
+        consolidatedDupes++;
+        console.log(`↯ duplicate of ${keptId.slice(0, 12)}… — tagged, not drafted: ${msg.id.slice(0, 12)}…`);
+        continue;
+      }
 
       const classification = await classifyEmail(text, subject);
       if (!classification.requiresReply) {
@@ -153,11 +200,14 @@ async function main() {
       }
 
       // Escalation tags surfaced on both the draft and the inbound message.
-      // An identity mismatch (body names a different email) also forces review.
-      const reasons = identityMismatch
-        ? [...result.redline.reasons, "body names a different email — verify identity before sending"]
-        : result.redline.reasons;
-      const escalate = result.redline.escalate || identityMismatch;
+      // Identity mismatch (body names a different email) and consolidated
+      // duplicates also force review.
+      const extraReasons: string[] = [];
+      if (identityMismatch) extraReasons.push("body names a different email — verify identity before sending");
+      const foldN = foldedCount.get(msg.id) ?? 0;
+      if (foldN > 0) extraReasons.push(`consolidated: ${foldN} επιπλέον μήνυμα(τα) ίδιου αιτήματος από τον πελάτη`);
+      const reasons = [...result.redline.reasons, ...extraReasons];
+      const escalate = result.redline.escalate || extraReasons.length > 0;
       const escalationCats = escalate
         ? ["TFP: Escalate", ...reasons.map((r) => `reason: ${r}`)]
         : [];
@@ -227,7 +277,7 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. drafted=${drafted} skipped=${skipped} alreadyDrafted=${alreadyDrafted} failed=${failed} (escalated=${escalated}, voucher=${withVoucher})`);
+  console.log(`\nDone. drafted=${drafted} skipped=${skipped} alreadyDrafted=${alreadyDrafted} consolidated=${consolidatedDupes} failed=${failed} (escalated=${escalated}, voucher=${withVoucher})`);
   if (escalated > 0) {
     console.log(`⚠ ${escalated} draft(s) are flagged ESCALATED — review those especially carefully before sending.`);
   }
