@@ -92,6 +92,14 @@ async function main() {
       // email instead of replying), so the draft doesn't repeat what we already
       // sent about the same issue.
       const relatedContext = await relatedThreadsFromGraph(customer, msg.conversationId);
+
+      // SECURITY: the classifier may lift an email out of the (attacker-controllable)
+      // body. If it names someone OTHER than the verified sender, we must NOT look
+      // that person up — doing so leaks a different customer's orders/PII into this
+      // reply. Flag it instead so a human verifies identity before sending.
+      const bodyEmail = classification.customerEmail?.toLowerCase();
+      const identityMismatch = !!bodyEmail && bodyEmail !== customer;
+
       const result = await draftReplyForInbound({
         policies,
         caseSummary: "",
@@ -102,10 +110,13 @@ async function main() {
         images: media.images,
         attachmentSummary: media.summary,
         classification,
+        // Account/PII lookups are keyed to the VERIFIED sender (`customer`), never
+        // to `c.customerEmail` (model-extracted from the body). A different body
+        // email escalates via identityMismatch above; it never redirects lookups.
         gatherShopify: (c, { productHandles }) =>
           gatherShopifyContext({
             orderNumber: c.orderNumber,
-            customerEmail: c.customerEmail || customer,
+            customerEmail: customer,
             couponCode: c.couponCode,
             intent: c.intent,
             productHandles,
@@ -113,7 +124,7 @@ async function main() {
         gatherOdoo: (c) =>
           gatherOdooContext({
             orderNumber: c.orderNumber,
-            customerEmail: c.customerEmail || customer,
+            customerEmail: customer,
             intent: c.intent,
             asksForReturnLabel: c.asksForReturnLabel,
           }),
@@ -132,9 +143,13 @@ async function main() {
       }
 
       // Escalation tags surfaced on both the draft and the inbound message.
-      const escalate = result.redline.escalate;
+      // An identity mismatch (body names a different email) also forces review.
+      const reasons = identityMismatch
+        ? [...result.redline.reasons, "body names a different email — verify identity before sending"]
+        : result.redline.reasons;
+      const escalate = result.redline.escalate || identityMismatch;
       const escalationCats = escalate
-        ? ["TFP: Escalate", ...result.redline.reasons.map((r) => `reason: ${r}`)]
+        ? ["TFP: Escalate", ...reasons.map((r) => `reason: ${r}`)]
         : [];
       // The draft is AI-generated → always tag it "Ai" (+ escalation tags).
       const bodyHtml = formatReplyHtml(result.content, disclaimerFor(classification.language));
@@ -179,7 +194,7 @@ async function main() {
           `Πελάτης: ${customer}${isContactForm ? " (Shopify contact form)" : ""}`,
           subject ? `Θέμα: ${subject}` : "",
           classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
-          escalate ? `Escalation: ${result.redline.reasons.join(", ")}` : "",
+          escalate ? `Escalation: ${reasons.join(", ")}` : "",
           `Draft (Outlook): ${webLink ?? "(δες φάκελο Drafts)"}`,
           `ref: ${msg.id}`, // machine-readable link back to the conversation (do not edit)
           "──────────────────────────────",
@@ -193,7 +208,7 @@ async function main() {
       if (escalate) escalated++;
       console.log(
         `✓ draft: «${subject ?? "(no subject)"}» → ${customer}${isContactForm ? " [contact-form]" : ""}` +
-          `${result.redline.escalate ? ` [ESCALATED: ${result.redline.reasons.join(",")}]` : ""}` +
+          `${escalate ? ` [ESCALATED: ${reasons.join(",")}]` : ""}` +
           `${attachments.length ? " [voucher attached]" : ""} → ${graphMessageId.slice(0, 12)}…`,
       );
     } catch (e) {

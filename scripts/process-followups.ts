@@ -66,8 +66,10 @@ async function main() {
         incomingMessage:
           "[Εσωτερικό — follow-up: ΔΕΝ υπάρχει νέο μήνυμα από τον πελάτη. Με βάση το ιστορικό και την «Απόφαση/ενέργεια που ελήφθη», γράψε ένα ΣΥΝΤΟΜΟ προληπτικό μήνυμα που κοινοποιεί την απόφαση. ΜΗΝ επαναλαμβάνεις όσα έχουμε ήδη πει στο thread.]",
         subject, classification,
-        gatherShopify: (c, { productHandles }) => gatherShopifyContext({ orderNumber: c.orderNumber, customerEmail: c.customerEmail || from, couponCode: c.couponCode, intent: c.intent, productHandles }),
-        gatherOdoo: (c) => gatherOdooContext({ orderNumber: c.orderNumber, customerEmail: c.customerEmail || from, intent: c.intent, asksForReturnLabel: c.asksForReturnLabel }),
+        // Account/PII lookups keyed to the verified sender (`from`), never to a
+        // model-extracted body email — see unread-to-outlook-drafts.ts.
+        gatherShopify: (c, { productHandles }) => gatherShopifyContext({ orderNumber: c.orderNumber, customerEmail: from, couponCode: c.couponCode, intent: c.intent, productHandles }),
+        gatherOdoo: (c) => gatherOdooContext({ orderNumber: c.orderNumber, customerEmail: from, intent: c.intent, asksForReturnLabel: c.asksForReturnLabel }),
       });
 
       const { webLink } = await createReplyDraft(
