@@ -44,7 +44,10 @@ async function main() {
       .trim();
     if (!ref || !decision) continue; // not linked, or no decision written yet
 
-    console.log(`\n▶ ${task.title}\n  decision: ${decision.slice(0, 120)}`);
+    // The decision is a human's free-text note (may carry names, amounts, IBANs)
+    // and stdout lands in CI logs — keep it out unless explicitly debugging.
+    console.log(`\n▶ ${task.title}`);
+    if (process.env.DEBUG_DRAFTS === "true") console.log(`  decision: ${decision.slice(0, 120)}`);
     try {
       const msg = await fetchMessage(ref);
       const from = (msg.from ?? msg.sender)?.emailAddress?.address?.toLowerCase() ?? "";
@@ -80,7 +83,10 @@ async function main() {
       await appendTaskNote(task.id, DONE_MARKER);
       drafted++;
       console.log(`  ✓ follow-up draft created${terms ? " [with code]" : ""}\n  ${webLink ?? ""}`);
-      console.log("  ── DRAFT ──\n" + result.content.split("\n").map((l) => "  " + l).join("\n"));
+      // The full draft body is maximal PII — only print it when debugging locally.
+      if (process.env.DEBUG_DRAFTS === "true") {
+        console.log("  ── DRAFT ──\n" + result.content.split("\n").map((l) => "  " + l).join("\n"));
+      }
     } catch (e) {
       console.error(`  ✗ failed: ${e instanceof Error ? e.message : e}`);
     }

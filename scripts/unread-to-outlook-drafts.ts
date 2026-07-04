@@ -32,6 +32,18 @@ import {
 //   npx tsx scripts/unread-to-outlook-drafts.ts [limit]
 const limit = Number.isFinite(Number(process.argv[2])) ? Number(process.argv[2]) : 50;
 
+/**
+ * Masks an email for logs (a***@example.com). These scripts are the CI
+ * entrypoints and all stdout lands in GitHub Actions run logs (retained,
+ * repo-readable) — so per-message logs use a masked address + the message id,
+ * never the raw email, subject, or draft body.
+ */
+function maskEmail(email: string | undefined): string {
+  if (!email) return "***";
+  const [local, domain] = email.split("@");
+  return domain ? `${local.slice(0, 1)}***@${domain}` : "***";
+}
+
 async function main() {
   const mailbox = getEnv().GRAPH_MAILBOX.toLowerCase();
   const policies = await loadPolicies();
@@ -71,11 +83,11 @@ async function main() {
       const text = isContactForm
         ? parsed?.message?.trim() || stripQuotedReply(bodyText)
         : stripQuotedReply(bodyText);
-      if (!text.trim()) { console.log(`- skip (empty body): ${subject}`); skipped++; continue; }
+      if (!text.trim()) { console.log(`- skip (empty body): ${msg.id.slice(0, 12)}…`); skipped++; continue; }
 
       const classification = await classifyEmail(text, subject);
       if (!classification.requiresReply) {
-        console.log(`- skip (no reply needed): ${subject}`);
+        console.log(`- skip (no reply needed): ${msg.id.slice(0, 12)}…`);
         skipped++;
         continue;
       }
@@ -138,7 +150,7 @@ async function main() {
           attachments.push({ name: att.name, contentType: att.mimetype, base64: att.base64 });
           withVoucher++;
         } else {
-          console.log(`  ! voucher ${result.voucherAttachmentId} not fetched for ${subject}`);
+          console.log(`  ! voucher ${result.voucherAttachmentId} not fetched for ${msg.id.slice(0, 12)}…`);
         }
       }
 
@@ -207,13 +219,13 @@ async function main() {
       drafted++;
       if (escalate) escalated++;
       console.log(
-        `✓ draft: «${subject ?? "(no subject)"}» → ${customer}${isContactForm ? " [contact-form]" : ""}` +
+        `✓ draft → ${maskEmail(customer)}${isContactForm ? " [contact-form]" : ""}` +
           `${escalate ? ` [ESCALATED: ${reasons.join(",")}]` : ""}` +
           `${attachments.length ? " [voucher attached]" : ""} → ${graphMessageId.slice(0, 12)}…`,
       );
     } catch (e) {
       failed++;
-      console.error(`✗ failed: «${subject}» — ${e instanceof Error ? e.message : e}`);
+      console.error(`✗ failed: ${msg.id.slice(0, 12)}… — ${e instanceof Error ? e.message : e}`);
     }
   }
 
