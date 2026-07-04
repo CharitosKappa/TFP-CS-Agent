@@ -59,16 +59,43 @@ ${ESCALATION_CATEGORIES}
 - summary: μία πρόταση για το τι ζητάει ο πελάτης
 - requiresReply: true αν το μήνυμα χρειάζεται απάντηση· false ΜΟΝΟ αν είναι καθαρό κλείσιμο/ευχαριστία/επιβεβαίωση ΧΩΡΙΣ νέο αίτημα ή ερώτηση (π.χ. «ευχαριστώ πολύ!», «εντάξει, όλα καλά»). Αν υπάρχει έστω και μικρή ερώτηση/αίτημα → true.`;
 
+/**
+ * Extracts the first BALANCED {...} object, tracking string literals so braces
+ * inside string values don't count. Beats indexOf/lastIndexOf, which over-slice
+ * when the model wraps the object in prose that itself contains braces.
+ */
+function firstJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      if (--depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 /** Strips ```json fences and returns the first JSON object found. */
 function extractJson(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced ? fenced[1] : text;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1) {
+  const obj = firstJsonObject(candidate);
+  if (!obj) {
     throw new Error(`No JSON object in classifier output: ${text.slice(0, 200)}`);
   }
-  return candidate.slice(start, end + 1);
+  return obj;
 }
 
 export async function classifyEmail(

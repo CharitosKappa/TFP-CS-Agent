@@ -143,10 +143,13 @@ export async function getOrderByName(
   if (!q) return null;
   const num = orderNumber.replace(/^#/, "").trim(); // digits (validated by q)
 
-  const data = await shopifyGraphQL<{ orders: { edges: { node: OrderNode }[] } }>(
-    ORDER_QUERY,
-    { q },
-  );
+  // The order and its delivery estimate are independent lookups keyed on the same
+  // name — run them together. Trade-off: one wasted estimate query when the order
+  // isn't found, for ~halved latency on the common found path.
+  const [data, deliveryEstimate] = await Promise.all([
+    shopifyGraphQL<{ orders: { edges: { node: OrderNode }[] } }>(ORDER_QUERY, { q }),
+    getDeliveryEstimateByOrderName(num),
+  ]);
   const node = data.orders.edges[0]?.node;
   if (!node) return null;
 
@@ -166,6 +169,6 @@ export async function getOrderByName(
       variantTitle: e.node.variantTitle ?? null,
     })),
     shippingCity: node.shippingAddress?.city ?? null,
-    deliveryEstimate: await getDeliveryEstimateByOrderName(num),
+    deliveryEstimate,
   };
 }

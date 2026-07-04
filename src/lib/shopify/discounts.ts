@@ -1,4 +1,5 @@
 import { getEnv } from "../env";
+import { resilientFetch } from "../http/resilient";
 import { log, errInfo } from "../observability/logger";
 import { getShopifyToken, shopifyGraphQL } from "./client";
 
@@ -132,7 +133,9 @@ export async function getLegacyDiscountByCode(
   const base = `https://${env.SHOPIFY_STORE_DOMAIN}/admin/api/${env.SHOPIFY_API_VERSION}`;
 
   // 1. Resolve the code → 303 redirect whose Location carries the price_rule id.
-  const lookup = await fetch(`${base}/discount_codes/lookup.json?code=${encodeURIComponent(c)}`, {
+  // Via resilientFetch for timeout + retry; the 303 success path isn't in retryOn,
+  // and redirect:"manual" passes through so the Location header is preserved.
+  const lookup = await resilientFetch(`${base}/discount_codes/lookup.json?code=${encodeURIComponent(c)}`, {
     headers: { "X-Shopify-Access-Token": token },
     redirect: "manual",
   });

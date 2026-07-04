@@ -12,6 +12,8 @@
 // Field LABELS are localized (EL/EN/ES seen) but Shopify keeps "Email:" and
 // "Message:" in English across languages, so we anchor on those + the first email.
 
+import { normalizeLang } from "../util/lang";
+
 export interface ContactFormSubmission {
   email: string;
   name: string | null;
@@ -54,6 +56,5 @@ const SUBJECTS: Record<string, string> = {
 };
 
 export function contactFormSubject(language?: string): string {
-  const lang = (language ?? "").trim().slice(0, 2).toLowerCase();
-  return SUBJECTS[lang] ?? SUBJECTS.en;
+  return SUBJECTS[normalizeLang(language)] ?? SUBJECTS.en;
 }

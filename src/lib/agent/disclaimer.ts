@@ -6,6 +6,8 @@
 // Wording note: drafts are human-reviewed before sending, but we disclose the AI
 // authorship plainly — transparency by default. Edit the strings here to tweak.
 
+import { normalizeLang } from "../util/lang";
+
 const DISCLAIMERS: Record<string, string> = {
   el: "Αυτό το μήνυμα ετοιμάστηκε αυτόματα από τον AI βοηθό μας. Αν προτιμάτε να σας εξυπηρετήσει άτομο της ομάδας μας, απαντήστε με τη λέξη **ΑΝΘΡΩΠΟΣ** και θα αναλάβει συνεργάτης μας.",
   en: "This message was prepared automatically by our AI assistant. If you'd prefer to speak with a member of our team, reply with the word **HUMAN** and a colleague will take over.",
@@ -19,6 +21,5 @@ const DISCLAIMERS: Record<string, string> = {
 
 /** The disclaimer for a message language (ISO code); English is the fallback. */
 export function disclaimerFor(language?: string): string {
-  const lang = (language ?? "").trim().slice(0, 2).toLowerCase();
-  return DISCLAIMERS[lang] ?? DISCLAIMERS.en;
+  return DISCLAIMERS[normalizeLang(language)] ?? DISCLAIMERS.en;
 }
