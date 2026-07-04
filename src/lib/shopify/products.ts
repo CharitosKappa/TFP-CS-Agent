@@ -1,4 +1,5 @@
 import { shopifyGraphQL } from "./client";
+import { handleQuery } from "./search";
 
 export interface ShopifyProductSummary {
   title: string;
@@ -62,11 +63,11 @@ const BY_HANDLE_QUERY = `query($q: String!) {
 export async function getProductByHandle(
   handle: string,
 ): Promise<ShopifyProductSummary | null> {
-  const h = handle.trim().toLowerCase();
-  if (!h) return null;
+  const q = handleQuery(handle);
+  if (!q) return null;
   const data = await shopifyGraphQL<{ products: { edges: { node: ProductNode }[] } }>(
     BY_HANDLE_QUERY,
-    { q: `handle:${h}` },
+    { q },
   );
   const node = data.products.edges[0]?.node;
   return node ? toSummary(node) : null;

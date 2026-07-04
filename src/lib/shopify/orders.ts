@@ -1,5 +1,6 @@
 import { log, errInfo } from "../observability/logger";
 import { shopifyGraphQL } from "./client";
+import { orderNameQuery } from "./search";
 
 export interface ShopifyOrderSummary {
   name: string;
@@ -138,12 +139,13 @@ async function getDeliveryEstimateByOrderName(
 export async function getOrderByName(
   orderNumber: string,
 ): Promise<ShopifyOrderSummary | null> {
-  const num = orderNumber.replace(/^#/, "").trim();
-  if (!num) return null;
+  const q = orderNameQuery(orderNumber);
+  if (!q) return null;
+  const num = orderNumber.replace(/^#/, "").trim(); // digits (validated by q)
 
   const data = await shopifyGraphQL<{ orders: { edges: { node: OrderNode }[] } }>(
     ORDER_QUERY,
-    { q: `name:${num}` },
+    { q },
   );
   const node = data.orders.edges[0]?.node;
   if (!node) return null;

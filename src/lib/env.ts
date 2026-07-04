@@ -38,7 +38,10 @@ const EnvSchema = z.object({
   // Odoo — self-hosted, read-only RMA/order lookups over JSON-RPC. The agent
   // authenticates as a dedicated read-only user with an API key (not a
   // password); see odoo/client.ts. HTTPS only — the key is sent in the body.
-  ODOO_URL: z.string().url(),
+  // Must be https: the Odoo API key travels in the JSON-RPC request body on every
+  // call, so an http:// URL would transmit it in cleartext (and resilientFetch
+  // would repeat the exposure on retry).
+  ODOO_URL: z.string().url().refine((u) => u.startsWith("https://"), "ODOO_URL must be https://"),
   ODOO_DB: z.string().min(1),
   ODOO_API_USER: z.string().min(1),
   ODOO_API_KEY: z.string().min(1),

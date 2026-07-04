@@ -20,13 +20,19 @@ function decodeEntities(s: string): string {
     .replace(/&([a-z]+);/gi, (m, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
 }
 
+// Inbound email HTML is attacker-controlled and parsed with backtracking-prone
+// regexes; cap the input so a multi-MB body engineered to maximise backtracking
+// can't stall the (serial) drafting worker. Anything past this is almost always
+// quoted cruft, which stripQuotedReply would drop anyway.
+const MAX_HTML_CHARS = 512_000;
+
 /**
  * Best-effort HTML → plain text (no external deps): preserves hyperlink targets
  * as "text (url)", turns <br> and block/row closes into newlines, table cells
  * into tabs, list items into bullets, and decodes entities.
  */
 export function htmlToText(html: string): string {
-  let s = html;
+  let s = html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html;
   s = s.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "");
   // Keep the link target: <a href="URL">text</a> → "text (URL)". Otherwise the
   // generic tag-strip below drops the href and any URL that lives only in it.

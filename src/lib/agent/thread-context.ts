@@ -55,24 +55,28 @@ export async function recentMessagesFromThread(
 /**
  * Summarises the customer's OTHER recent conversations (from Graph, no DB) so a
  * draft isn't blind to what we've already told them when they open a NEW email
- * instead of replying in-thread. Excludes the current conversation. Best-effort:
- * returns undefined on error or when there are no other threads.
+ * instead of replying in-thread. Excludes the current conversation and, for data
+ * minimisation, anything older than `maxAgeDays` (so long-closed matters aren't
+ * re-surfaced into an unrelated draft). Best-effort: returns undefined on error
+ * or when there are no other recent threads.
  */
 export async function relatedThreadsFromGraph(
   email: string,
   currentConversationId: string,
-  opts: { maxThreads?: number; perThread?: number } = {},
+  opts: { maxThreads?: number; perThread?: number; maxAgeDays?: number } = {},
 ): Promise<string | undefined> {
-  const { maxThreads = 3, perThread = 4 } = opts;
+  const { maxThreads = 3, perThread = 4, maxAgeDays = 180 } = opts;
   let msgs;
   try {
     msgs = await searchMessagesByParticipant(email);
   } catch {
     return undefined;
   }
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   const byConv = new Map<string, typeof msgs>();
   for (const m of msgs) {
     if (!m.conversationId || m.conversationId === currentConversationId) continue;
+    if (new Date(m.receivedDateTime).getTime() < cutoff) continue;
     const arr = byConv.get(m.conversationId) ?? [];
     arr.push(m);
     byConv.set(m.conversationId, arr);

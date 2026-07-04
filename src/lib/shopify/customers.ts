@@ -1,5 +1,6 @@
 import { log, errInfo } from "../observability/logger";
 import { shopifyGraphQL } from "./client";
+import { emailQuery } from "./search";
 
 export interface ShopifyCustomerSummary {
   name: string;
@@ -60,12 +61,14 @@ const STORE_CREDIT_QUERY = `query($q: String!) {
 async function getStoreCreditByEmail(
   email: string,
 ): Promise<{ amount: string; currency: string }[]> {
+  const q = emailQuery(email);
+  if (!q) return [];
   try {
     const data = await shopifyGraphQL<{
       customers: {
         edges: { node: { storeCreditAccounts: { edges: { node: { balance: { amount: string; currencyCode: string } } }[] } } }[];
       };
-    }>(STORE_CREDIT_QUERY, { q: `email:${email}` });
+    }>(STORE_CREDIT_QUERY, { q });
     const accounts = data.customers.edges[0]?.node.storeCreditAccounts.edges ?? [];
     return accounts.map((a) => ({
       amount: a.node.balance.amount,
@@ -81,12 +84,13 @@ async function getStoreCreditByEmail(
 export async function getCustomerByEmail(
   email: string,
 ): Promise<ShopifyCustomerSummary | null> {
+  const q = emailQuery(email);
+  if (!q) return null;
   const e = email.trim().toLowerCase();
-  if (!e) return null;
 
   const data = await shopifyGraphQL<{ customers: { edges: { node: CustomerNode }[] } }>(
     CUSTOMER_QUERY,
-    { q: `email:${e}` },
+    { q },
   );
   const node = data.customers.edges[0]?.node;
   if (!node) return null;
