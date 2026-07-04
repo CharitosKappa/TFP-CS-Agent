@@ -30,7 +30,7 @@ export const RED_LINE_RULES: RedLineRule[] = [
     key: "legal",
     description: "Νομικές απειλές / δικηγόρος / αρχές καταναλωτή",
     stems: ["δικηγόρ", "μηνύσ", "συνήγορ", "καταγγελ", "νομικ"],
-    words: ["sue", "lawyer", "lawsuit", "γγε"],
+    words: ["sue", "lawyer", "lawsuit"],
     phrases: ["legal action"],
   },
   {

@@ -44,7 +44,10 @@ export async function fetchInboundMedia(graphMessageId: string): Promise<Inbound
       // Trust the bytes we actually hold, not Graph's reported `size` — it can
       // be missing (defaulted to 0), which would let an oversized image through
       // un-downscaled and trip Claude's per-image limit (a 400 that kills the draft).
-      const rawBytes = Math.floor((a.contentBytes.length * 3) / 4);
+      // Count only base64 data chars (drop any newlines/whitespace/padding) so the
+      // estimate isn't inflated into a needless downscale.
+      const b64Len = a.contentBytes.replace(/[^A-Za-z0-9+/]/g, "").length;
+      const rawBytes = Math.floor((b64Len * 3) / 4);
       if (sniffed && rawBytes <= MAX_IMAGE_BYTES) {
         images.push({ mediaType: sniffed, data: a.contentBytes });
       } else {

@@ -73,7 +73,10 @@ export async function gatherOdooContext(input: {
     // Prefer the order when known (most precise); else look up by customer email.
     // Search returns lightweight records; we hydrate only the one we keep.
     let records: RmaRecord[] = [];
-    if (input.orderNumber) records = await findRmaRecordsByOrder(input.orderNumber);
+    // Strip the Shopify "#" prefix/whitespace before matching Odoo order_id.name
+    // (the Shopify path strips it too — "#43605" would otherwise never match).
+    const orderNumber = input.orderNumber?.replace(/^#/, "").trim();
+    if (orderNumber) records = await findRmaRecordsByOrder(orderNumber);
     if (records.length === 0 && input.customerEmail) {
       records = await findRmaRecordsByCustomerEmail(input.customerEmail);
     }

@@ -81,7 +81,7 @@ async function main() {
           ? msg.replyTo?.[0]?.emailAddress?.address?.toLowerCase() || parsed?.email
           : from) || from;
       const text = isContactForm
-        ? parsed?.message?.trim() || stripQuotedReply(bodyText)
+        ? stripQuotedReply(parsed?.message ?? "").trim() || stripQuotedReply(bodyText)
         : stripQuotedReply(bodyText);
       if (!text.trim()) { console.log(`- skip (empty body): ${msg.id.slice(0, 12)}…`); skipped++; continue; }
 
