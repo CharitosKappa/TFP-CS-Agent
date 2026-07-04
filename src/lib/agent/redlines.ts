@@ -118,6 +118,15 @@ export const RED_LINE_RULES: RedLineRule[] = [
     ],
   },
   {
+    key: "order_cancellation",
+    description: "Αίτημα ακύρωσης/ματαίωσης παραγγελίας — μη αναστρέψιμη ενέργεια· ΠΑΝΤΑ ανάληψη από άνθρωπο (ο agent δεν ακυρώνει παραγγελίες)",
+    // EL: ακυρω* (ακύρωση/ακυρώσω/ακυρωθεί), ματαιωσ*  ·  EN/IT/ES/PT: cancel*
+    // (cancellation/cancelar/cancellare)  ·  FR/IT/NL: annul* (annuler/annullare/
+    // annuleren)  ·  ES/PT: anul* (anular)  ·  DE: storn* (stornieren/Stornierung).
+    stems: ["ακυρω", "ματαιωσ", "cancel", "annul", "anul", "storn"],
+    phrases: ["cancel my order", "cancel the order", "ακυρωση παραγγελ", "ακυρωση της παραγγελ"],
+  },
+  {
     key: "product_defect",
     description: "Ελαττωματικό/χαλασμένο προϊόν ή αίτημα αντικατάστασης",
     // Policy: defect/replacement complaints reach a human even without explicit
