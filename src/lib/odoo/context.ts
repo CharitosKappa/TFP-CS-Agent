@@ -1,4 +1,3 @@
-import type { Intent } from "../agent/types";
 import { log } from "../observability/logger";
 import {
   findRmaRecordsByCustomerEmail,
@@ -70,7 +69,6 @@ export interface OdooGatherResult {
 export async function gatherOdooContext(input: {
   customerEmail?: string;
   orderNumber?: string;
-  intent?: Intent;
   /** Customer explicitly asked to receive/resend the return voucher. */
   asksForReturnLabel?: boolean;
 }): Promise<OdooGatherResult | undefined> {

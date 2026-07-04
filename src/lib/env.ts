@@ -24,7 +24,7 @@ const EnvSchema = z.object({
   // domains (e.g. the *.onmicrosoft.com tenant domain), comma-separated. The
   // GRAPH_MAILBOX's own domain is always treated as internal automatically, so
   // this is only for aliases on a DIFFERENT domain. Used to tell our own
-  // addresses apart from the customer when threading (see ingestion/sync.ts).
+  // addresses apart from the customer when threading (see makeIsInternal).
   INTERNAL_EMAIL_DOMAINS: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // Shopify — Dev Dashboard custom app. The Admin API token is fetched at runtime

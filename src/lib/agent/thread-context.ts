@@ -7,11 +7,10 @@ export interface ThreadHistoryMessage {
 }
 
 /**
- * Builds the recent in-thread history for the agent straight from Graph (no DB),
- * mirroring what process.ts assembles from persisted messages: prior messages in
- * the same conversation, oldest→newest, excluding the current message and any
- * later ones, capped to `limit`. Used by flows that draft without ingesting into
- * the DB so replies are never blind to the conversation so far.
+ * Builds the recent in-thread history for the agent straight from Graph (no DB):
+ * prior messages in the same conversation, oldest→newest, excluding the current
+ * message and any later ones, capped to `limit`. Lets a flow draft without
+ * ingesting into a DB while never being blind to the conversation so far.
  */
 export async function recentMessagesFromThread(
   conversationId: string,

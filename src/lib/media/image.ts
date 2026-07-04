@@ -15,10 +15,6 @@ export interface InlineImage {
   data: string;
 }
 
-export function isSupportedImageType(ct: string): ct is SupportedImageType {
-  return (SUPPORTED_IMAGE_TYPES as readonly string[]).includes(ct.toLowerCase());
-}
-
 /**
  * Sniff the real image type from the leading "magic" bytes of a base64 payload.
  * Graph's declared contentType is sometimes wrong (e.g. a PNG label on JPEG

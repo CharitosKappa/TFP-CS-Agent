@@ -1,4 +1,3 @@
-import type { Intent } from "../agent/types";
 import { getCustomerByEmail, type ShopifyCustomerSummary } from "./customers";
 import {
   getDiscountByCode,
@@ -116,7 +115,6 @@ export async function gatherShopifyContext(input: {
   orderNumber?: string;
   customerEmail?: string;
   couponCode?: string;
-  intent?: Intent;
   /** Product handles from links in the customer's message (for fit/size advice). */
   productHandles?: string[];
 }): Promise<string | undefined> {

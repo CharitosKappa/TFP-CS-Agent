@@ -130,19 +130,17 @@ async function main() {
             orderNumber: c.orderNumber,
             customerEmail: customer,
             couponCode: c.couponCode,
-            intent: c.intent,
             productHandles,
           }),
         gatherOdoo: (c) =>
           gatherOdooContext({
             orderNumber: c.orderNumber,
             customerEmail: customer,
-            intent: c.intent,
             asksForReturnLabel: c.asksForReturnLabel,
           }),
       });
 
-      // Attach the real voucher when the agent resolved one (same rule as send.ts).
+      // Attach the real voucher when the agent resolved one.
       const attachments: OutgoingAttachment[] = [];
       if (result.voucherAttachmentId) {
         const att = await fetchOdooAttachment(result.voucherAttachmentId);

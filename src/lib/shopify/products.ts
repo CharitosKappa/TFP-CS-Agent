@@ -72,21 +72,6 @@ export async function getProductByHandle(
   return node ? toSummary(node) : null;
 }
 
-const SEARCH_QUERY = `query($q: String!) {
-  products(first: 3, query: $q) { edges { node { ${PRODUCT_FIELDS} } } }
-}`;
-
-/** Free-text product search (title/sku/etc.) — fallback for product questions. */
-export async function searchProducts(term: string): Promise<ShopifyProductSummary[]> {
-  const t = term.trim();
-  if (!t) return [];
-  const data = await shopifyGraphQL<{ products: { edges: { node: ProductNode }[] } }>(
-    SEARCH_QUERY,
-    { q: t },
-  );
-  return data.products.edges.map((e) => toSummary(e.node));
-}
-
 // Extract TFP product handles from any product links in free text, e.g.
 //   https://www.thefashionproject.gr/en-eu/products/toe-ring-sandals-beige-suede?variant=…
 // Optional locale segment (e.g. /en-eu/, /el/) is skipped; the handle is captured

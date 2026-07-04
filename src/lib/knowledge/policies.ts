@@ -11,7 +11,7 @@ let cached: string | null = null;
  *
  * Because the corpus is small and bounded, we inject it whole (with prompt
  * caching) rather than building a vector/RAG pipeline. Phase 2+: convert
- * PDF/Word sources to text files here, or back the loader with KnowledgeDoc.
+ * PDF/Word sources to text files here.
  */
 export async function loadPolicies(): Promise<string> {
   if (cached) return cached;
@@ -20,9 +20,4 @@ export async function loadPolicies(): Promise<string> {
   const texts = await Promise.all(files.map((f) => readFile(join(dir, f), "utf8")));
   cached = texts.join("\n\n---\n\n");
   return cached;
-}
-
-/** Clears the in-memory cache (call after editing knowledge files). */
-export function clearPoliciesCache(): void {
-  cached = null;
 }

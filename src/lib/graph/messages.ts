@@ -94,15 +94,6 @@ export function fetchInboxMessages(
 }
 
 /**
- * Recent Sent Items (us → customer), newest first. Ingesting these gives the
- * thread our replies — including ones sent directly from Outlook, not just via
- * the app — so conversation history is complete.
- */
-export function fetchSentMessages(opts: { limit?: number; since?: Date } = {}) {
-  return fetchFolderMessages("sentitems", opts);
-}
-
-/**
  * Finds messages involving a given customer across ALL folders and threads
  * (from OR to them), via mailbox search. Used to surface a customer's OTHER
  * conversations — customers often open a new email instead of replying in the
@@ -182,33 +173,12 @@ export async function getMessageAttachments(
     }));
 }
 
-/**
- * Cheap, metadata-only check (does NOT download contentBytes) for whether a
- * message carries a real, non-inline image attachment. Used at ingest to set a
- * flag the review queue can show without re-fetching attachments per render.
- */
-export async function messageHasImageAttachment(graphMessageId: string): Promise<boolean> {
-  const res = await graphFetch(
-    `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}/attachments?${odata({
-      $select: "contentType,isInline,size",
-    })}`,
-  );
-  const data = (await res.json()) as GraphListResponse<RawAttachment>;
-  return data.value.some((a) => {
-    // @odata.type may be omitted under $select; fall back to the contentType.
-    const type = a["@odata.type"] ?? "";
-    const isFile = type === "" || type.includes("fileAttachment");
-    const isImage = (a.contentType ?? "").toLowerCase().startsWith("image/");
-    return isFile && isImage && !isInlineCruft({ isInline: !!a.isInline, size: a.size ?? 0 });
-  });
-}
-
 export interface SentReply {
   /**
    * Id of the reply message (the Drafts copy that was sent). It differs from the
-   * eventual Sent Items id; this is fine because ingestion only reads the INBOX
-   * (sync.ts), so a self-sent reply is never re-ingested. If Sent Items ingestion
-   * is ever added, dedupe OUTBOUND on internetMessageId instead of this id.
+   * eventual Sent Items id; this is fine because we only ingest the INBOX, so a
+   * self-sent reply is never re-ingested. If Sent Items ingestion is ever added,
+   * dedupe OUTBOUND on internetMessageId instead of this id.
    */
   graphMessageId: string;
   conversationId: string;
