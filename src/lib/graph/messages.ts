@@ -1,9 +1,7 @@
 import { isInlineCruft } from "../media/image";
 import { getEnv } from "../env";
-import { graphFetch } from "./client";
+import { GRAPH_BASE, graphFetch } from "./client";
 import type { GraphListResponse, GraphMessage } from "./types";
-
-const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
 const SELECT = [
   "id",

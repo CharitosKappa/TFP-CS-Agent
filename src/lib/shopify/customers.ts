@@ -1,3 +1,4 @@
+import { log, errInfo } from "../observability/logger";
 import { shopifyGraphQL } from "./client";
 
 export interface ShopifyCustomerSummary {
@@ -71,7 +72,7 @@ async function getStoreCreditByEmail(
       currency: a.node.balance.currencyCode,
     }));
   } catch (e) {
-    console.error("store credit lookup failed:", e);
+    log.error("shopify_store_credit_lookup_failed", errInfo(e));
     return [];
   }
 }

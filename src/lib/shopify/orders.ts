@@ -1,3 +1,4 @@
+import { log, errInfo } from "../observability/logger";
 import { shopifyGraphQL } from "./client";
 
 export interface ShopifyOrderSummary {
@@ -128,7 +129,7 @@ async function getDeliveryEstimateByOrderName(
       maxDelivery: fo.deliveryMethod?.maxDeliveryDateTime ?? null,
     };
   } catch (e) {
-    console.error("delivery estimate lookup failed:", e);
+    log.error("shopify_delivery_estimate_lookup_failed", errInfo(e));
     return null;
   }
 }

@@ -3,7 +3,7 @@ import { getEnv } from "../env";
 import { resilientFetch, type ResilientOptions } from "../http/resilient";
 import { log } from "../observability/logger";
 
-const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+export const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
 let cca: ConfidentialClientApplication | null = null;
 

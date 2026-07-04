@@ -8,7 +8,7 @@ import { toBodyText } from "../src/lib/graph/message-parse";
 import { appendTaskNote, getTaskDetails, listPlanTasks } from "../src/lib/graph/planner";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
-import { getDiscountByCode, getLegacyDiscountByCode } from "../src/lib/shopify/discounts";
+import { getDiscountByCodeWithLegacyFallback } from "../src/lib/shopify/discounts";
 import { formatReplyHtml } from "../src/lib/ingestion/html";
 import { disclaimerFor } from "../src/lib/agent/disclaimer";
 
@@ -22,8 +22,7 @@ const DONE_MARKER = "[AGENT_DRAFTED]";
 
 /** Looks up a discount code's terms (modern, then legacy) — same as gatherShopify. */
 async function discountTerms(code: string): Promise<string | null> {
-  const d = (await getDiscountByCode(code).catch(() => null)) ??
-    (await getLegacyDiscountByCode(code).catch(() => null));
+  const d = await getDiscountByCodeWithLegacyFallback(code);
   if (!d) return null;
   return `Κωδικός ${d.code}: ${d.summary ?? d.title} (κατάσταση: ${d.status}${d.endsAt ? `, λήξη ${d.endsAt.slice(0, 10)}` : ""}).`;
 }

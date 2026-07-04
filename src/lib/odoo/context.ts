@@ -1,3 +1,4 @@
+import { fmtDate } from "../util/date";
 import { log } from "../observability/logger";
 import {
   findRmaRecordsByCustomerEmail,
@@ -11,10 +12,6 @@ import {
 // validated/locked) is "active" — a return still in progress. Adjust here if the
 // business treats "locked" as closed.
 const TERMINAL_STATES = new Set(["processed", "cancel", "invalid"]);
-
-function fmtDate(iso: string): string {
-  return iso.slice(0, 10);
-}
 
 /**
  * Compact, prompt-ready rendering of one RMA. Greek headers like the Shopify

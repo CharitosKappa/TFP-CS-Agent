@@ -1,3 +1,4 @@
+import { log, errInfo } from "../observability/logger";
 import { classifyEmail } from "./classify";
 import { generateDraft } from "./draft";
 import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from "./redlines";
@@ -66,7 +67,7 @@ export async function draftReplyForInbound(
           const productHandles = extractProductHandles(input.incomingMessage);
           shopifyContext = await input.gatherShopify(classification, { productHandles });
         } catch (e) {
-          console.error("shopify gather failed:", e);
+          log.error("shopify_gather_failed", errInfo(e));
         }
       }
     })(),
@@ -79,7 +80,7 @@ export async function draftReplyForInbound(
             voucherAttachmentId = odoo.voucherAttachmentId;
           }
         } catch (e) {
-          console.error("odoo gather failed:", e);
+          log.error("odoo_gather_failed", errInfo(e));
         }
       }
     })(),

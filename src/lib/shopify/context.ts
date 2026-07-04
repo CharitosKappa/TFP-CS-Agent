@@ -1,15 +1,12 @@
+import { fmtDate } from "../util/date";
+import { log, errInfo } from "../observability/logger";
 import { getCustomerByEmail, type ShopifyCustomerSummary } from "./customers";
 import {
-  getDiscountByCode,
-  getLegacyDiscountByCode,
+  getDiscountByCodeWithLegacyFallback,
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 import { getProductByHandle, type ShopifyProductSummary } from "./products";
-
-export function fmtDate(iso: string): string {
-  return iso.slice(0, 10);
-}
 
 function formatDiscount(d: ShopifyDiscountSummary): string {
   const status =
@@ -142,21 +139,9 @@ export async function gatherShopifyContext(input: {
       }
     }
     if (input.couponCode) {
-      // Check both discount systems: modern code discounts, then (if not found)
-      // legacy price-rule codes. Each lookup is isolated so one failing (e.g.
-      // missing scope) doesn't block the other.
-      const lookup = async (
-        fn: (c: string) => Promise<ShopifyDiscountSummary | null>,
-      ): Promise<ShopifyDiscountSummary | null> => {
-        try {
-          return await fn(input.couponCode as string);
-        } catch (e) {
-          console.error("discount lookup failed:", e);
-          return null;
-        }
-      };
-      const discount =
-        (await lookup(getDiscountByCode)) ?? (await lookup(getLegacyDiscountByCode));
+      // Modern code discounts, then (if not found) legacy price-rule codes —
+      // each isolated so one failing (e.g. missing scope) doesn't block the other.
+      const discount = await getDiscountByCodeWithLegacyFallback(input.couponCode);
       parts.push(
         discount
           ? formatDiscount(discount)
@@ -183,7 +168,7 @@ export async function gatherShopifyContext(input: {
       }
     }
   } catch (e) {
-    console.error("shopify lookup failed:", e);
+    log.error("shopify_context_failed", errInfo(e));
   }
   return parts.length ? parts.join("\n\n") : undefined;
 }

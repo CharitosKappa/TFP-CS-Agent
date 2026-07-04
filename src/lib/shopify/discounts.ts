@@ -1,4 +1,5 @@
 import { getEnv } from "../env";
+import { log, errInfo } from "../observability/logger";
 import { getShopifyToken, shopifyGraphQL } from "./client";
 
 export interface ShopifyDiscountSummary {
@@ -158,4 +159,23 @@ export async function getLegacyDiscountByCode(
     endsAt: pr.endsAt ?? null,
     summary: priceRuleSummary(pr),
   };
+}
+
+/**
+ * Looks up a code in the modern discount system, then falls back to legacy
+ * price-rules. Each lookup is isolated so one failing (e.g. a missing scope)
+ * doesn't block the other. Returns null when neither system has the code.
+ */
+export async function getDiscountByCodeWithLegacyFallback(
+  code: string,
+): Promise<ShopifyDiscountSummary | null> {
+  const modern = await getDiscountByCode(code).catch((e) => {
+    log.error("shopify_discount_lookup_failed", errInfo(e));
+    return null;
+  });
+  if (modern) return modern;
+  return getLegacyDiscountByCode(code).catch((e) => {
+    log.error("shopify_legacy_discount_lookup_failed", errInfo(e));
+    return null;
+  });
 }
