@@ -21,7 +21,7 @@ export async function recentMessagesFromThread(
 ): Promise<ThreadHistoryMessage[]> {
   const thread = await fetchConversationThread(conversationId);
   const isInternal = makeIsInternal();
-  return thread
+  const prior = thread
     .filter(
       (m) =>
         m.id !== currentMessageId &&
@@ -33,9 +33,24 @@ export async function recentMessagesFromThread(
         direction: isInternal(from) ? ("OUTBOUND" as const) : ("INBOUND" as const),
         body: toBodyText(m),
       };
-    })
-    .filter((m) => m.body.trim().length > 0)
-    .slice(-limit);
+    });
+
+  const withBody = prior.filter((m) => m.body.trim().length > 0).slice(-limit);
+
+  // The repeat_after_reply escalation gate reads the LAST prior message's
+  // direction, so it must be decided from the full chronological order — BEFORE
+  // dropping empty-body messages. Otherwise an OUTBOUND reply whose body stripped
+  // to empty (e.g. all quoted content) would vanish and a stale INBOUND would
+  // look like "last", silently suppressing the escalation. Re-append the true
+  // last message's direction (with a readable placeholder) when it was dropped.
+  const last = prior[prior.length - 1];
+  if (last && last.body.trim().length === 0) {
+    withBody.push({
+      direction: last.direction,
+      body: last.direction === "OUTBOUND" ? "(η προηγούμενη απάντησή μας)" : "(προηγούμενο μήνυμα πελάτη)",
+    });
+  }
+  return withBody;
 }
 
 /**
