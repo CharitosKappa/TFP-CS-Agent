@@ -117,13 +117,24 @@ export function formatReplyHtml(text: string, disclaimer?: string): string {
 const QUOTE_MARKERS: RegExp[] = [
   /-----\s*Original Message\s*-----/i,
   /^_{5,}\s*$/m,
-  // "wrote:" / "έγραψε:" headers — no end-of-line anchor, because some clients
-  // put the quoted text right after the colon on the same line (e.g. Gmail:
-  // "On … wrote: Hello…"), which a "$" would miss.
-  /^On .+ wrote:/im,
-  /^Στις .+ έγραψε:?/im,
-  /^From:\s.+$/im,
-  /^Από:\s.+$/im,
+  // Gmail-style "…wrote:" headers, one per language TFP serves. No end-of-line
+  // anchor, because some clients put the quoted text right after the colon on the
+  // same line (e.g. "On … wrote: Hello…"), which a "$" would miss.
+  /^On .+ wrote:/im, // EN
+  /^Στις .+ έγραψε:?/im, // EL
+  /^Le .+ a écrit\s*:/im, // FR
+  /^Am .+ schrieb .+:/im, // DE
+  /^Il giorno .+ ha scritto\s*:/im, // IT
+  /^El .+ escribió\s*:/im, // ES
+  /^Op .+ schreef .+:/im, // NL
+  /^Em .+ escreveu\s*:/im, // PT
+  // Outlook-style headers (the localized "From:" line that starts the quote).
+  /^From:\s.+$/im, // EN
+  /^Από:\s.+$/im, // EL
+  /^De ?:\s.+$/im, // FR / ES / PT
+  /^Von:\s.+$/im, // DE
+  /^Da:\s.+$/im, // IT
+  /^Van:\s.+$/im, // NL
 ];
 
 /**
