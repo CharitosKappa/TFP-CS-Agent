@@ -16,6 +16,7 @@ import {
   createReplyDraft,
   fetchInboxMessages,
   flagMessage,
+  markMessageRead,
   type OutgoingAttachment,
 } from "../src/lib/graph/messages";
 import type { GraphMessage } from "../src/lib/graph/types";
@@ -118,17 +119,17 @@ async function main() {
   for (const { msg, customer, text, isContactForm } of resolved) {
     const subject = msg.subject ?? undefined;
     try {
-      // Folded duplicate: a sibling message (same request) is being drafted once.
-      // Don't draft again — tag DRAFTED + escalate so it isn't re-drafted and the
-      // reviewer sees it's part of a consolidated case.
+      // Folded (older) duplicate: a same-request sibling is being drafted once, so
+      // this one is dismissed AS A REPLY OBLIGATION — mark it READ so it drops out of
+      // the unread queue, and tag it (traceability + idempotency). No draft, no task,
+      // no flag, no escalation: those all live on the kept (newest) message.
       const keptId = foldedInto.get(msg.id);
       if (keptId) {
-        const cats = Array.from(new Set([
-          ...(msg.categories ?? []), DRAFTED_CATEGORY, "TFP: Escalate", "reason: consolidated_duplicate",
-        ]));
-        await flagMessage(msg.id, { categories: cats, flagged: true });
+        const cats = Array.from(new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, "TFP: Consolidated duplicate"]));
+        await flagMessage(msg.id, { categories: cats });
+        await markMessageRead(msg.id);
         consolidatedDupes++;
-        console.log(`↯ duplicate of ${keptId.slice(0, 12)}… — tagged, not drafted: ${msg.id.slice(0, 12)}…`);
+        console.log(`↯ folded duplicate of ${keptId.slice(0, 12)}… — read + tagged, not drafted: ${msg.id.slice(0, 12)}…`);
         continue;
       }
 

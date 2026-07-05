@@ -350,6 +350,18 @@ export async function flagMessage(
 }
 
 /**
+ * Marks a message as read — used to dismiss a folded duplicate from the unread
+ * queue (a same-request sibling is being drafted once, so this one needs no reply).
+ */
+export async function markMessageRead(graphMessageId: string): Promise<void> {
+  await graphFetch(
+    `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}`,
+    { method: "PATCH", body: JSON.stringify({ isRead: true }) },
+    NO_RETRY,
+  );
+}
+
+/**
  * Sends a reply in the original thread: build the reply draft (body +
  * attachments) → send. Replies go to the sender of the original (the customer).
  */
