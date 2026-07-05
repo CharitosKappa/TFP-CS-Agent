@@ -9,14 +9,14 @@
 import { normalizeLang } from "../util/lang";
 
 const DISCLAIMERS: Record<string, string> = {
-  el: "Αυτό το μήνυμα ετοιμάστηκε αυτόματα από τον AI βοηθό μας. Αν προτιμάτε να σας εξυπηρετήσει άτομο της ομάδας μας, απαντήστε με τη λέξη **ΑΝΘΡΩΠΟΣ** και θα αναλάβει συνεργάτης μας.",
-  en: "This message was prepared automatically by our AI assistant. If you'd prefer to speak with a member of our team, reply with the word **HUMAN** and a colleague will take over.",
-  de: "Diese Nachricht wurde automatisch von unserem KI-Assistenten erstellt. Wenn Sie lieber mit einer Person aus unserem Team sprechen möchten, antworten Sie mit dem Wort **MENSCH** und ein Kollege übernimmt.",
-  fr: "Ce message a été préparé automatiquement par notre assistant IA. Si vous préférez parler à une personne de notre équipe, répondez avec le mot **HUMAIN** et un collègue prendra le relais.",
-  it: "Questo messaggio è stato preparato automaticamente dal nostro assistente AI. Se preferisci parlare con una persona del nostro team, rispondi con la parola **OPERATORE** e un collega ti assisterà.",
-  es: "Este mensaje ha sido preparado automáticamente por nuestro asistente de IA. Si prefieres hablar con una persona de nuestro equipo, responde con la palabra **HUMANO** y un compañero se encargará.",
-  nl: "Dit bericht is automatisch opgesteld door onze AI-assistent. Wilt u liever met een medewerker spreken? Antwoord met het woord **MENS** en een collega neemt het over.",
-  pt: "Esta mensagem foi preparada automaticamente pelo nosso assistente de IA. Se preferir falar com uma pessoa da nossa equipa, responda com a palavra **HUMANO** e um colega assumirá.",
+  el: "Αυτό το μήνυμα ετοιμάστηκε αυτόματα από τον AI βοηθό μας και, καθώς παράγεται αυτόματα, ενδέχεται να περιέχει ανακρίβειες ή σφάλματα — παρακαλούμε επιβεβαιώστε τυχόν σημαντικές πληροφορίες. Αν προτιμάτε να σας εξυπηρετήσει άτομο της ομάδας μας, απαντήστε με τη λέξη **ΑΝΘΡΩΠΟΣ** και θα αναλάβει συνεργάτης μας.",
+  en: "This message was prepared automatically by our AI assistant and, as it is generated automatically, it may contain inaccuracies or errors — please verify any important details. If you'd prefer to speak with a member of our team, reply with the word **HUMAN** and a colleague will take over.",
+  de: "Diese Nachricht wurde automatisch von unserem KI-Assistenten erstellt und kann, da sie automatisch generiert wird, Ungenauigkeiten oder Fehler enthalten — bitte überprüfen Sie wichtige Angaben. Wenn Sie lieber mit einer Person aus unserem Team sprechen möchten, antworten Sie mit dem Wort **MENSCH** und ein Kollege übernimmt.",
+  fr: "Ce message a été préparé automatiquement par notre assistant IA et, étant généré automatiquement, il peut contenir des inexactitudes ou des erreurs — merci de vérifier toute information importante. Si vous préférez parler à une personne de notre équipe, répondez avec le mot **HUMAIN** et un collègue prendra le relais.",
+  it: "Questo messaggio è stato preparato automaticamente dal nostro assistente AI e, essendo generato automaticamente, può contenere imprecisioni o errori — la preghiamo di verificare le informazioni importanti. Se preferisci parlare con una persona del nostro team, rispondi con la parola **OPERATORE** e un collega ti assisterà.",
+  es: "Este mensaje ha sido preparado automáticamente por nuestro asistente de IA y, al generarse automáticamente, puede contener imprecisiones o errores — le rogamos verifique cualquier dato importante. Si prefieres hablar con una persona de nuestro equipo, responde con la palabra **HUMANO** y un compañero se encargará.",
+  nl: "Dit bericht is automatisch opgesteld door onze AI-assistent en kan, aangezien het automatisch wordt gegenereerd, onnauwkeurigheden of fouten bevatten — controleer belangrijke gegevens. Wilt u liever met een medewerker spreken? Antwoord met het woord **MENS** en een collega neemt het over.",
+  pt: "Esta mensagem foi preparada automaticamente pelo nosso assistente de IA e, por ser gerada automaticamente, pode conter imprecisões ou erros — por favor confirme quaisquer dados importantes. Se preferir falar com uma pessoa da nossa equipa, responda com a palavra **HUMANO** e um colega assumirá.",
 };
 
 /** The disclaimer for a message language (ISO code); English is the fallback. */

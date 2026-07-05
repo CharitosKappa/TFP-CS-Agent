@@ -268,7 +268,7 @@ async function main() {
           classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
           `Κατηγορία: ${classification.intent} · Διάθεση: ${classification.sentiment}`,
           escalate ? `Κλιμάκωση: ${reasons.join(", ")}` : "",
-          `🔗 Draft (Outlook): ${webLink ?? "(δες φάκελο Drafts)"}`,
+          webLink ? "🔗 Draft: δες το link «Άνοιγμα draft (Outlook)» στο task" : "🔗 Draft: (δες φάκελο Drafts)",
           `ref: ${msg.id}`, // machine-readable link back to the conversation (do not edit)
         ].filter(Boolean).join("\n");
         const decisionPart = [
@@ -277,7 +277,11 @@ async function main() {
           "» ",
         ].join("\n");
         const notes = [summaryPart, detailsPart, decisionPart].join("\n\n");
-        const taskId = await createPlannerTask({ title, description: notes });
+        const taskId = await createPlannerTask({
+          title,
+          description: notes,
+          references: webLink ? [{ url: webLink, alias: "Άνοιγμα draft (Outlook)" }] : undefined,
+        });
         if (taskId) console.log(`  → Planner task: ${title}`);
       }
       drafted++;

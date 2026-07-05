@@ -8,14 +8,54 @@ import { graphFetch } from "./client";
 
 const NO_RETRY = { retries: 0 } as const;
 
-/** Sets a task's description (task details is a separate resource + needs If-Match). */
-async function setTaskDescription(taskId: string, description: string): Promise<void> {
+/** A clickable link shown on the Planner task (alias instead of a raw long URL). */
+export interface PlannerReference {
+  url: string;
+  alias: string;
+}
+
+/**
+ * Planner reference-dictionary keys are the URL, but a few characters can't
+ * appear in an OpenType JSON key and must be percent-encoded. `%` MUST be first
+ * so already-encoded sequences in the URL (e.g. `%3D`) round-trip correctly.
+ */
+function plannerRefKey(url: string): string {
+  return url
+    .replace(/%/g, "%25")
+    .replace(/\./g, "%2E")
+    .replace(/:/g, "%3A")
+    .replace(/@/g, "%40")
+    .replace(/#/g, "%23");
+}
+
+/**
+ * Sets a task's description (+ optional reference links). Task details is a
+ * separate resource and needs If-Match. References render as clickable, aliased
+ * links on the task, so a long Outlook deep-link shows as e.g. "Άνοιγμα draft".
+ */
+async function setTaskDetails(
+  taskId: string,
+  description: string,
+  references?: PlannerReference[],
+): Promise<void> {
   const res = await graphFetch(`/planner/tasks/${encodeURIComponent(taskId)}/details`);
   const etag = ((await res.json()) as { "@odata.etag"?: string })["@odata.etag"];
   if (!etag) return;
+  const body: Record<string, unknown> = { description, previewType: "description" };
+  if (references?.length) {
+    const refs: Record<string, unknown> = {};
+    for (const r of references) {
+      refs[plannerRefKey(r.url)] = {
+        "@odata.type": "#microsoft.graph.plannerExternalReference",
+        alias: r.alias,
+        type: "Other",
+      };
+    }
+    body.references = refs;
+  }
   await graphFetch(
     `/planner/tasks/${encodeURIComponent(taskId)}/details`,
-    { method: "PATCH", headers: { "If-Match": etag }, body: JSON.stringify({ description }) },
+    { method: "PATCH", headers: { "If-Match": etag }, body: JSON.stringify(body) },
     NO_RETRY,
   );
 }
@@ -30,6 +70,8 @@ export async function createPlannerTask(opts: {
   description?: string;
   /** ISO datetime for the task due date. */
   dueDate?: string;
+  /** Clickable aliased links to attach (e.g. the Outlook draft). */
+  references?: PlannerReference[];
 }): Promise<string | null> {
   const env = getEnv();
   if (!env.PLANNER_PLAN_ID) return null; // Planner disabled
@@ -49,9 +91,9 @@ export async function createPlannerTask(opts: {
       NO_RETRY,
     );
     const task = (await res.json()) as { id: string };
-    if (opts.description) {
-      // Description failing shouldn't lose the task itself.
-      await setTaskDescription(task.id, opts.description).catch((e) =>
+    if (opts.description || opts.references?.length) {
+      // Details failing shouldn't lose the task itself.
+      await setTaskDetails(task.id, opts.description ?? "", opts.references).catch((e) =>
         log.warn("planner_details_failed", { ...errInfo(e) }),
       );
     }
