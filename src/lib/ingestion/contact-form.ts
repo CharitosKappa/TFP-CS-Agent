@@ -58,3 +58,19 @@ const SUBJECTS: Record<string, string> = {
 export function contactFormSubject(language?: string): string {
   return SUBJECTS[normalizeLang(language)] ?? SUBJECTS.en;
 }
+
+// Header above the quoted original message in a fresh contact-form reply.
+const ORIGINAL_HEADERS: Record<string, string> = {
+  el: "Το αρχικό σας μήνυμα:",
+  en: "Your original message:",
+  fr: "Votre message d'origine :",
+  de: "Ihre ursprüngliche Nachricht:",
+  it: "Il tuo messaggio originale:",
+  es: "Tu mensaje original:",
+  nl: "Uw oorspronkelijke bericht:",
+  pt: "A sua mensagem original:",
+};
+
+export function originalMessageHeader(language?: string): string {
+  return ORIGINAL_HEADERS[normalizeLang(language)] ?? ORIGINAL_HEADERS.en;
+}

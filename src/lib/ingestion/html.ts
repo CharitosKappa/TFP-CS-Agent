@@ -113,6 +113,21 @@ export function formatReplyHtml(text: string, disclaimer?: string): string {
   return `<div style="font-family:Aptos,Calibri,Arial,sans-serif; font-size:11pt; color:#242424">${body}${footer}</div>`;
 }
 
+/**
+ * Appends the customer's original message as a quoted block below the reply. Used
+ * for FRESH emails (e.g. Shopify contact-form replies sent via createNewDraft),
+ * which — unlike an in-thread reply — carry no quoted history, so the customer
+ * would otherwise see our answer with no sight of what they originally asked.
+ */
+export function withQuotedOriginal(replyHtml: string, originalText: string, header: string): string {
+  const quoted = escapeHtml(originalText.trim()).replace(/\n/g, "<br>");
+  return (
+    `${replyHtml}` +
+    `<div style="margin-top:16px; padding-top:10px; border-top:1px solid #e0e0e0; font-family:Aptos,Calibri,Arial,sans-serif; font-size:10pt; color:#8a8a8a">` +
+    `${escapeHtml(header)}<blockquote style="margin:6px 0 0 0; padding-left:10px; border-left:2px solid #ccc">${quoted}</blockquote></div>`
+  );
+}
+
 // Markers that typically begin a quoted reply chain.
 const QUOTE_MARKERS: RegExp[] = [
   /-----\s*Original Message\s*-----/i,
