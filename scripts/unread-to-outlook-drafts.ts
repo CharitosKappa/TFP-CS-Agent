@@ -211,9 +211,14 @@ async function main() {
       const escalationCats = escalate
         ? ["TFP: Escalate", ...reasons.map((r) => `reason: ${r}`)]
         : [];
-      // The draft is AI-generated → always tag it "Ai" (+ escalation tags).
+      // Non-escalated drafts that still need a human action (promisesFollowUp)
+      // get a visible "TFP: Follow-up" tag — the Outlook counterpart of the
+      // Planner task, so the Drafts folder shows they're not "done". (Escalated
+      // drafts already stand out via TFP: Escalate.)
+      const followUpCats = result.promisesFollowUp && !escalate ? ["TFP: Follow-up"] : [];
+      // The draft is AI-generated → always tag it "Ai" (+ escalation/follow-up tags).
       const bodyHtml = formatReplyHtml(result.content, disclaimerFor(classification.language));
-      const draftCategories = [AI_CATEGORY, ...escalationCats];
+      const draftCategories = [AI_CATEGORY, ...escalationCats, ...followUpCats];
       let graphMessageId: string;
       let webLink: string | null | undefined;
       if (isContactForm) {
@@ -237,7 +242,7 @@ async function main() {
       // inbox — categories on the draft alone sit in the Drafts folder). Merge with
       // any existing categories so nothing already there is lost.
       const inboundCategories = Array.from(
-        new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, ...escalationCats]),
+        new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, ...escalationCats, ...followUpCats]),
       );
       await flagMessage(msg.id, { categories: inboundCategories, flagged: escalate });
 
