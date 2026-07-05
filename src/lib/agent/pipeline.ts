@@ -108,14 +108,13 @@ export async function draftReplyForInbound(
     }
   }
 
-  // Thread-aware: the last message in this thread is already OUR reply, yet the
-  // customer has written back — our previous answer didn't resolve it, so a human
-  // should take over the loop instead of auto-drafting another round. Deliberately
-  // conservative: this also escalates a genuinely new follow-up question, which is
-  // an acceptable trade-off in draft-only mode (every draft is human-reviewed, and
-  // the reviewer still gets this draft as a starting point).
+  // Thread-aware: the customer has written back after OUR reply. This escalates
+  // ONLY when there's a sign the previous answer didn't land — negative sentiment
+  // or another red-line already firing. A positive/neutral follow-up is drafted
+  // normally rather than auto-escalating every back-and-forth (reviewer noise).
   const lastPrior = input.recentMessages[input.recentMessages.length - 1];
-  if (lastPrior?.direction === "OUTBOUND") {
+  const wroteBackAfterOurReply = lastPrior?.direction === "OUTBOUND";
+  if (wroteBackAfterOurReply && (classification.sentiment === "negative" || redline.escalate)) {
     redline.escalate = true;
     if (!redline.reasons.includes("repeat_after_reply")) {
       redline.reasons.push("repeat_after_reply");
