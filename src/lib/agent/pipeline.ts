@@ -64,7 +64,11 @@ export async function draftReplyForInbound(
     (async () => {
       if (!shopifyContext && input.gatherShopify) {
         try {
-          const productHandles = extractProductHandles(input.incomingMessage);
+          // Scan the whole thread, not just the new message: a follow-up ("is it
+          // back in stock?") often no longer repeats the product link, so we'd
+          // otherwise lose the product it refers to (and e.g. its notify-me state).
+          const handleText = [input.incomingMessage, ...input.recentMessages.map((m) => m.body)].join("\n");
+          const productHandles = extractProductHandles(handleText);
           shopifyContext = await input.gatherShopify(classification, { productHandles });
         } catch (e) {
           log.error("shopify_gather_failed", errInfo(e));
