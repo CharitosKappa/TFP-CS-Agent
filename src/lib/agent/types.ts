@@ -26,6 +26,12 @@ export interface Classification {
   /** Shoe size the customer is asking about, if any (e.g. "42") — for availability. */
   productSize?: string;
   /**
+   * The product the customer names (as written), when they didn't paste a link —
+   * e.g. "Σανδάλια Fisherman Flatform - Μόκα Σουέντ". Used to infer the product's
+   * CATEGORY for a size-filtered link when we can't resolve the exact product.
+   */
+  productName?: string;
+  /**
    * The customer is explicitly asking to RECEIVE or RESEND the return courier
    * voucher/label (e.g. "δεν βρίσκω το voucher", "στείλτε μου ξανά την ετικέτα").
    * Trigger for attaching the real voucher PDF from Odoo to the reply.

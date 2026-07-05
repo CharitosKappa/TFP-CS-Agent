@@ -178,6 +178,7 @@ async function main() {
             couponCode: c.couponCode,
             productHandles,
             productSize: c.productSize,
+            productName: c.productName,
           }),
         gatherOdoo: (c) =>
           gatherOdooContext({

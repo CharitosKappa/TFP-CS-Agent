@@ -6,7 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
-import { colourSiblingsWithSize, getProductByHandle, sizeFilterUrl, type ShopifyProductSummary } from "./products";
+import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, sizeFilterUrl, type ShopifyProductSummary } from "./products";
 
 function formatDiscount(d: ShopifyDiscountSummary): string {
   const status =
@@ -122,6 +122,8 @@ export async function gatherShopifyContext(input: {
   productHandles?: string[];
   /** Shoe size the customer asked about — drives the sold-out → alternatives block. */
   productSize?: string;
+  /** Product name the customer typed (no link) — used to infer a category size link. */
+  productName?: string;
 }): Promise<string | undefined> {
   const parts: string[] = [];
   try {
@@ -165,6 +167,7 @@ export async function gatherShopifyContext(input: {
     // Products the customer linked to (fit/size questions) — surface each product's
     // Fit Advice so the reply can advise on sizing from real data. Isolated per
     // handle so one failing lookup doesn't block the rest.
+    let resolvedProduct = false;
     if (input.productHandles?.length) {
       const products = await Promise.all(
         input.productHandles
@@ -173,6 +176,7 @@ export async function gatherShopifyContext(input: {
       );
       for (const p of products) {
         if (!p) continue;
+        resolvedProduct = true;
         let block = formatProduct(p);
         // Customer asked about a specific size that's sold out on THIS product →
         // give the reviewer the two fallbacks: another colour of the same model
@@ -193,6 +197,23 @@ export async function gatherShopifyContext(input: {
         }
         parts.push(block);
       }
+    }
+    // Size question, but we couldn't resolve the exact product (named without a
+    // link, or ambiguous). We can't state per-size stock — but we CAN point the
+    // customer to what's available in their size: the product's CATEGORY when we
+    // can infer it from the name, else the full catalog. Both filtered to the size.
+    if (input.productSize && !resolvedProduct) {
+      const size = input.productSize;
+      const cat = input.productName
+        ? await inferCategoryCollection(input.productName).catch(() => null)
+        : null;
+      const link = cat
+        ? `- Σύνδεσμος διαθέσιμων «${cat.categoryName}» στο νούμερο ${size}: ${sizeFilterUrl(cat.collectionHandle, size)}`
+        : `- Σύνδεσμος διαθέσιμων προϊόντων στο νούμερο ${size} (γενικός κατάλογος): ${catalogSizeFilterUrl(size)}`;
+      parts.push(
+        `ΤΟ ΣΥΓΚΕΚΡΙΜΕΝΟ ΠΡΟΪΟΝ ΔΕΝ ΤΑΥΤΟΠΟΙΗΘΗΚΕ (δόθηκε μόνο όνομα, χωρίς σύνδεσμο). ` +
+          `Ζήτησε ευγενικά τον σύνδεσμο ή το SKU, ΚΑΙ δώσε τον παρακάτω σύνδεσμο με τα διαθέσιμα στο νούμερο ${size}:\n${link}`,
+      );
     }
   } catch (e) {
     log.error("shopify_context_failed", errInfo(e));

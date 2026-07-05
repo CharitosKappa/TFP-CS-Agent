@@ -172,3 +172,59 @@ export async function colourSiblingsWithSize(
 export function sizeFilterUrl(collectionHandle: string, size: string): string {
   return `${STOREFRONT}/collections/${collectionHandle}?filter.v.option.shoe+size=${encodeURIComponent(size)}&filter.v.availability=1`;
 }
+
+/**
+ * Link to the FULL catalog (Shopify's built-in `all` collection) filtered to
+ * in-stock items in `size`. The fallback when we can't pin down a category.
+ */
+export function catalogSizeFilterUrl(size: string): string {
+  return sizeFilterUrl("all", size);
+}
+
+const CATEGORY_SEARCH = `query($q: String!) {
+  products(first: 30, query: $q) {
+    edges { node { status category { name } collections(first: 40) { edges { node { handle title } } } } }
+  }
+}`;
+
+/**
+ * Best-effort CATEGORY (not exact product) for something the customer named but
+ * didn't link — e.g. "Σανδάλια Fisherman Flatform - Μόκα Σουέντ". Title-searches
+ * the text (dropping any trailing " - colour"), and if the ACTIVE matches agree
+ * on a single category collection, returns it, so we can link available items of
+ * that category in the asked size. Returns null when nothing matches or the
+ * category is ambiguous — the caller then falls back to the full catalog.
+ */
+export async function inferCategoryCollection(
+  productText: string,
+): Promise<{ categoryName: string; collectionHandle: string } | null> {
+  // Colourway after a dash breaks the match (e.g. "… - Μόκα Σουέντ" → 0 results),
+  // so try the name without the trailing colour first, then the raw text.
+  const withoutColour = productText.replace(/\s*[-–—:]\s*\S.*$/s, "").trim();
+  for (const q of [...new Set([withoutColour, productText.trim()])]) {
+    if (q.length < 3) continue;
+    const data = await shopifyGraphQL<{
+      products: { edges: { node: {
+        status: string;
+        category: { name: string } | null;
+        collections: { edges: { node: { handle: string; title: string } }[] };
+      } }[] };
+    }>(CATEGORY_SEARCH, { q }).catch(() => null);
+    const nodes = (data?.products.edges ?? []).map((e) => e.node).filter((n) => n.status === "ACTIVE");
+    if (!nodes.length) continue;
+    const counts = new Map<string, { name: string; handle: string; n: number }>();
+    for (const n of nodes) {
+      const cat = n.category?.name;
+      if (!cat) continue;
+      const handle = n.collections.edges.find((e) => e.node.title.toLowerCase() === cat.toLowerCase())?.node.handle;
+      if (!handle) continue;
+      const cur = counts.get(handle) ?? { name: cat, handle, n: 0 };
+      cur.n++;
+      counts.set(handle, cur);
+    }
+    const top = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+    // Require a strong majority so a mixed result set doesn't get mislabeled.
+    if (top && top.n / nodes.length >= 0.6) return { categoryName: top.name, collectionHandle: top.handle };
+  }
+  return null;
+}
