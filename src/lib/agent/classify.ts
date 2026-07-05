@@ -25,7 +25,11 @@ const FALLBACK_CLASSIFICATION: Classification = {
 };
 
 const ClassificationSchema = z.object({
-  intent: z.enum(INTENTS),
+  // `.catch("other")`: the model sometimes emits an escalation-reason key (e.g.
+  // "order_modification") or another stray value here. Degrade to "other" instead
+  // of failing the WHOLE classification — the escalation still fires via
+  // escalationReasons/keywords, and we keep orderNumber and the rest.
+  intent: z.enum(INTENTS).catch("other"),
   confidence: z.number().min(0).max(1),
   language: z.string().default("el"),
   // The triage model sometimes emits null / "" / a malformed value for an absent
@@ -37,7 +41,7 @@ const ClassificationSchema = z.object({
   couponCode: z.string().optional().catch(undefined),
   asksForReturnLabel: z.boolean().optional().catch(undefined),
   escalationReasons: z.array(z.string()).optional().catch(undefined),
-  sentiment: z.enum(["positive", "neutral", "negative"]),
+  sentiment: z.enum(["positive", "neutral", "negative"]).catch("neutral"),
   summary: z.string(),
   // Default/​fallback to true so an absent or malformed value never silently
   // suppresses a needed reply.
