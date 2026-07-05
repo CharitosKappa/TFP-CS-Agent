@@ -5,6 +5,7 @@ import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from 
 import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
 import { extractProductHandles } from "../shopify/products";
+import { extractOrderNumber } from "../shopify/orders";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
 export interface DraftReplyInput {
@@ -54,6 +55,14 @@ export async function draftReplyForInbound(
 ): Promise<DraftResult> {
   const classification =
     input.classification ?? (await classifyEmail(input.incomingMessage, input.subject));
+
+  // Resolve the order number from the subject + thread when the current message
+  // omits it (e.g. a "cancel the order" follow-up) — so the order-keyed lookups,
+  // Planner task title, and task supersede-by-order still work on a follow-up.
+  if (!classification.orderNumber) {
+    const fromThread = extractOrderNumber([input.subject ?? "", ...input.recentMessages.map((m) => m.body)].join("\n"));
+    if (fromThread) classification.orderNumber = fromThread;
+  }
 
   // Gather external context concurrently — each is best-effort and isolated, so
   // one source failing (or being slow) never blocks the draft or the other source.

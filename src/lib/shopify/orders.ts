@@ -135,6 +135,18 @@ async function getDeliveryEstimateByOrderName(
   }
 }
 
+/**
+ * Best-effort extraction of an order number from free text (message/thread), for
+ * when the classifier didn't surface one — e.g. a follow-up ("cancel the order")
+ * that no longer repeats the number, but our earlier replies/the thread do
+ * ("order #50616" / "commande n° 50616"). Matches only order-flavoured contexts,
+ * not any bare number.
+ */
+export function extractOrderNumber(text: string): string | undefined {
+  const m = text.match(/(?:#|n[°o]\.?\s*|order\s+#?|commande\s+(?:n[°o]\.?\s*)?|παραγγελ\w*\s*#?)(\d{4,7})\b/i);
+  return m?.[1];
+}
+
 /** Looks up a single order by its name/number (e.g. "1023" or "#1023"). */
 export async function getOrderByName(
   orderNumber: string,
