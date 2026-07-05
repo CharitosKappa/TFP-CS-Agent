@@ -6,7 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
-import { getProductByHandle, type ShopifyProductSummary } from "./products";
+import { colourSiblingsWithSize, getProductByHandle, sizeFilterUrl, type ShopifyProductSummary } from "./products";
 
 function formatDiscount(d: ShopifyDiscountSummary): string {
   const status =
@@ -94,10 +94,16 @@ function formatCustomer(c: ShopifyCustomerSummary): string {
 function formatProduct(p: ShopifyProductSummary): string {
   // Fit Advice drives size guidance (e.g. "true to size" → for a half/between size,
   // recommend the larger one — see knowledge/60-products-sizing.md).
+  const inStock = p.sizes.filter((s) => s.available).map((s) => s.size);
+  const soldOut = p.sizes.filter((s) => !s.available).map((s) => s.size);
   return [
     `Προϊόν: ${p.title}`,
     p.fitAdvice ? `- Fit Advice (εφαρμογή): ${p.fitAdvice}` : "",
     p.fitAndSizing ? `- Οδηγίες μεγέθους/εφαρμογής: ${p.fitAndSizing}` : "",
+    p.sizes.length
+      ? `- Διαθέσιμα μεγέθη: ${inStock.join(", ") || "κανένα"}${soldOut.length ? ` · εξαντλημένα: ${soldOut.join(", ")}` : ""}`
+      : "",
+    `- Notify-me (ειδοποίηση επαναδιαθεσιμότητας): ${p.notifyMeEnabled ? "ΕΝΕΡΓΟ — μπορείς να το προτείνεις" : "ΑΝΕΝΕΡΓΟ — ΜΗΝ προτείνεις «Notify me» γι' αυτό το προϊόν"}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -114,6 +120,8 @@ export async function gatherShopifyContext(input: {
   couponCode?: string;
   /** Product handles from links in the customer's message (for fit/size advice). */
   productHandles?: string[];
+  /** Shoe size the customer asked about — drives the sold-out → alternatives block. */
+  productSize?: string;
 }): Promise<string | undefined> {
   const parts: string[] = [];
   try {
@@ -164,7 +172,26 @@ export async function gatherShopifyContext(input: {
           .map((h) => getProductByHandle(h).catch(() => null)),
       );
       for (const p of products) {
-        if (p) parts.push(formatProduct(p));
+        if (!p) continue;
+        let block = formatProduct(p);
+        // Customer asked about a specific size that's sold out on THIS product →
+        // give the reviewer the two fallbacks: another colour of the same model
+        // that has the size, and a filtered link to available items in that size.
+        const asked = input.productSize;
+        const askedEntry = asked ? p.sizes.find((s) => s.size === asked) : undefined;
+        if (asked && askedEntry && !askedEntry.available) {
+          const alts: string[] = [];
+          if (p.master) {
+            const siblings = (await colourSiblingsWithSize(p.master, asked).catch(() => []))
+              .filter((s) => s.handle !== p.handle);
+            if (siblings.length) alts.push(`- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${asked} διαθέσιμο: ${siblings.map((s) => s.title).join(", ")}`);
+          }
+          if (p.categoryCollectionHandle) {
+            alts.push(`- Σύνδεσμος διαθέσιμων «${p.categoryName ?? "προϊόντων"}» στο μέγεθος ${asked}: ${sizeFilterUrl(p.categoryCollectionHandle, asked)}`);
+          }
+          if (alts.length) block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${asked} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν. Πρότεινε:\n${alts.join("\n")}`;
+        }
+        parts.push(block);
       }
     }
   } catch (e) {

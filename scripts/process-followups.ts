@@ -70,7 +70,7 @@ async function main() {
         subject, classification,
         // Account/PII lookups keyed to the verified sender (`from`), never to a
         // model-extracted body email — see unread-to-outlook-drafts.ts.
-        gatherShopify: (c, { productHandles }) => gatherShopifyContext({ orderNumber: c.orderNumber, customerEmail: from, couponCode: c.couponCode, productHandles }),
+        gatherShopify: (c, { productHandles }) => gatherShopifyContext({ orderNumber: c.orderNumber, customerEmail: from, couponCode: c.couponCode, productHandles, productSize: c.productSize }),
         gatherOdoo: (c) => gatherOdooContext({ orderNumber: c.orderNumber, customerEmail: from, asksForReturnLabel: c.asksForReturnLabel }),
       });
 

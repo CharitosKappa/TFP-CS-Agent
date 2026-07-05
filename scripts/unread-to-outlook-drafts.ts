@@ -179,6 +179,7 @@ async function main() {
             customerEmail: customer,
             couponCode: c.couponCode,
             productHandles,
+            productSize: c.productSize,
           }),
         gatherOdoo: (c) =>
           gatherOdooContext({

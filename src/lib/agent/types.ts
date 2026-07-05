@@ -23,6 +23,8 @@ export interface Classification {
   customerEmail?: string;
   /** Discount/coupon code the customer mentions, if any (for Shopify lookup). */
   couponCode?: string;
+  /** Shoe size the customer is asking about, if any (e.g. "42") — for availability. */
+  productSize?: string;
   /**
    * The customer is explicitly asking to RECEIVE or RESEND the return courier
    * voucher/label (e.g. "δεν βρίσκω το voucher", "στείλτε μου ξανά την ετικέτα").
