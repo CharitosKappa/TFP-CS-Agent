@@ -12,7 +12,6 @@ import { fetchOdooAttachment } from "../src/lib/odoo/attachments";
 import {
   AI_CATEGORY,
   DRAFTED_CATEGORY,
-  createNewDraft,
   createReplyDraft,
   fetchInboxMessages,
   flagMessage,
@@ -21,12 +20,11 @@ import {
 } from "../src/lib/graph/messages";
 import type { GraphMessage } from "../src/lib/graph/types";
 import { createPlannerTask } from "../src/lib/graph/planner";
-import { htmlToText, stripQuotedReply, formatReplyHtml, withQuotedOriginal } from "../src/lib/ingestion/html";
+import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 import { disclaimerFor } from "../src/lib/agent/disclaimer";
 import {
   contactFormSubject,
   isShopifyContactForm,
-  originalMessageHeader,
   parseShopifyContactForm,
 } from "../src/lib/ingestion/contact-form";
 
@@ -225,13 +223,13 @@ async function main() {
       let graphMessageId: string;
       let webLink: string | null | undefined;
       if (isContactForm) {
-        // Fresh email TO the real customer (not an in-thread reply to the mailer).
-        // A fresh email carries no quoted history, so append the customer's original
-        // message below the reply — otherwise they'd see our answer with no context.
-        ({ graphMessageId, webLink } = await createNewDraft({
+        // Reply in-thread to the Shopify contact-form notification (keeps it threaded
+        // in our mailbox and quotes the original) but re-address it to the REAL
+        // customer (Reply-To/body) with a clean customer-facing subject — not the
+        // Shopify mailer / the store-facing "New customer message…" subject.
+        ({ graphMessageId, webLink } = await createReplyDraft(msg.id, bodyHtml, {
           to: customer,
           subject: contactFormSubject(classification.language),
-          bodyHtml: withQuotedOriginal(bodyHtml, text, originalMessageHeader(classification.language)),
           categories: draftCategories,
           flagged: escalate,
         }));
