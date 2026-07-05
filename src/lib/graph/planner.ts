@@ -121,6 +121,22 @@ export async function listPlanTasks(): Promise<PlannerTask[]> {
   return ((await res.json()) as { value: PlannerTask[] }).value ?? [];
 }
 
+/** Deletes a task by id (needs the If-Match etag). Best-effort — never throws. */
+export async function deletePlannerTask(taskId: string): Promise<void> {
+  try {
+    const res = await graphFetch(`/planner/tasks/${encodeURIComponent(taskId)}`);
+    const etag = ((await res.json()) as { "@odata.etag"?: string })["@odata.etag"];
+    if (!etag) return;
+    await graphFetch(
+      `/planner/tasks/${encodeURIComponent(taskId)}`,
+      { method: "DELETE", headers: { "If-Match": etag } },
+      NO_RETRY,
+    );
+  } catch (e) {
+    log.warn("planner_delete_failed", { ...errInfo(e) });
+  }
+}
+
 /** Reads a task's notes/description (+ etag, needed to patch it back). */
 export async function getTaskDetails(
   taskId: string,

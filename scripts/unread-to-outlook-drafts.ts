@@ -19,7 +19,7 @@ import {
   type OutgoingAttachment,
 } from "../src/lib/graph/messages";
 import type { GraphMessage } from "../src/lib/graph/types";
-import { createPlannerTask } from "../src/lib/graph/planner";
+import { createPlannerTask, deletePlannerTask, listPlanTasks } from "../src/lib/graph/planner";
 import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 import { disclaimerFor } from "../src/lib/agent/disclaimer";
 import {
@@ -281,6 +281,16 @@ async function main() {
           "» ",
         ].join("\n");
         const notes = [summaryPart, detailsPart, decisionPart].join("\n\n");
+        // Supersede: a newer message for the SAME order makes prior NOT-STARTED
+        // tasks stale/contradictory (e.g. cancel → keep → cancel). Remove them so
+        // the board keeps one current task. Only 0%-complete ones — never touch a
+        // task a colleague has already started.
+        if (classification.orderNumber) {
+          const orderRe = new RegExp(`#${classification.orderNumber}(?!\\d)`);
+          const stale = (await listPlanTasks()).filter((t) => t.percentComplete === 0 && orderRe.test(t.title));
+          for (const t of stale) await deletePlannerTask(t.id);
+          if (stale.length) console.log(`  ↯ superseded ${stale.length} prior task(s) for #${classification.orderNumber}`);
+        }
         const taskId = await createPlannerTask({
           title,
           description: notes,
