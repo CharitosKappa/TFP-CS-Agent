@@ -253,20 +253,30 @@ async function main() {
         // Clean, consistent SHORT title: "<essence> — #<order>"; details in notes.
         const essence = result.followUpTitle || (escalate ? "Έλεγχος/απόφαση" : "Follow-up");
         const title = classification.orderNumber ? `${essence} — #${classification.orderNumber}` : essence;
-        const notes = [
-          result.followUpDetails || "Χρειάζεται ανθρώπινη ενέργεια/απόφαση (βλ. draft).",
-          "",
+        // Notes: always Greek, information-rich, and structured into three parts
+        // separated by a blank line — (Α) περίληψη ζητήματος, (Β) στοιχεία + draft
+        // link, (Γ) απόφαση/ενέργεια. filter(Boolean) runs PER PART so absent
+        // fields drop out without collapsing the blank lines between parts.
+        const summaryPart = [
+          "📋 ΠΕΡΙΛΗΨΗ ΖΗΤΗΜΑΤΟΣ",
+          result.followUpDetails || classification.summary || "Χρειάζεται ανθρώπινη ενέργεια/απόφαση (βλ. draft).",
+        ].join("\n");
+        const detailsPart = [
           "— Στοιχεία —",
           `Πελάτης: ${customer}${isContactForm ? " (Shopify contact form)" : ""}`,
           subject ? `Θέμα: ${subject}` : "",
           classification.orderNumber ? `Παραγγελία: #${classification.orderNumber}` : "",
-          escalate ? `Escalation: ${reasons.join(", ")}` : "",
-          `Draft (Outlook): ${webLink ?? "(δες φάκελο Drafts)"}`,
+          `Κατηγορία: ${classification.intent} · Διάθεση: ${classification.sentiment}`,
+          escalate ? `Κλιμάκωση: ${reasons.join(", ")}` : "",
+          `🔗 Draft (Outlook): ${webLink ?? "(δες φάκελο Drafts)"}`,
           `ref: ${msg.id}`, // machine-readable link back to the conversation (do not edit)
+        ].filter(Boolean).join("\n");
+        const decisionPart = [
           "──────────────────────────────",
           "✍️ ΑΠΟΦΑΣΗ / ΕΝΕΡΓΕΙΑ (συμπλήρωσε εδώ ο συνεργάτης, μετά κλείσε το task):",
           "» ",
-        ].filter(Boolean).join("\n");
+        ].join("\n");
+        const notes = [summaryPart, detailsPart, decisionPart].join("\n\n");
         const taskId = await createPlannerTask({ title, description: notes });
         if (taskId) console.log(`  → Planner task: ${title}`);
       }
