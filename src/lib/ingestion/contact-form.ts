@@ -8,11 +8,9 @@
 //   Message: <the customer's actual message>
 //
 // The real customer is also in the Reply-To header (preferred). We parse this so
-// the reply is drafted TO the customer (as a NEW email), not to the Shopify mailer.
+// the in-thread reply is re-addressed TO the customer, not to the Shopify mailer.
 // Field LABELS are localized (EL/EN/ES seen) but Shopify keeps "Email:" and
 // "Message:" in English across languages, so we anchor on those + the first email.
-
-import { normalizeLang } from "../util/lang";
 
 export interface ContactFormSubmission {
   email: string;
@@ -40,21 +38,4 @@ export function parseShopifyContactForm(body: string): ContactFormSubmission | n
   const name = [first, last].filter(Boolean).join(" ") || null;
   const message = body.match(MESSAGE_RE)?.[1]?.trim() || body.trim();
   return { email, name, message };
-}
-
-// Subject for the fresh reply email (there's no thread to inherit one from),
-// localized to the customer's language; English fallback.
-const SUBJECTS: Record<string, string> = {
-  el: "Σχετικά με το μήνυμά σας — The Fashion Project",
-  en: "Re: your message to The Fashion Project",
-  de: "Ihre Nachricht an The Fashion Project",
-  fr: "Votre message à The Fashion Project",
-  it: "Il tuo messaggio a The Fashion Project",
-  es: "Tu mensaje a The Fashion Project",
-  nl: "Uw bericht aan The Fashion Project",
-  pt: "A sua mensagem para The Fashion Project",
-};
-
-export function contactFormSubject(language?: string): string {
-  return SUBJECTS[normalizeLang(language)] ?? SUBJECTS.en;
 }

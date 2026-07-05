@@ -23,7 +23,6 @@ import { createPlannerTask, deletePlannerTask, listPlanTasks } from "../src/lib/
 import { htmlToText, stripQuotedReply, formatReplyHtml } from "../src/lib/ingestion/html";
 import { disclaimerFor } from "../src/lib/agent/disclaimer";
 import {
-  contactFormSubject,
   isShopifyContactForm,
   parseShopifyContactForm,
 } from "../src/lib/ingestion/contact-form";
@@ -223,13 +222,14 @@ async function main() {
       let graphMessageId: string;
       let webLink: string | null | undefined;
       if (isContactForm) {
-        // Reply in-thread to the Shopify contact-form notification (keeps it threaded
-        // in our mailbox and quotes the original) but re-address it to the REAL
-        // customer (Reply-To/body) with a clean customer-facing subject — not the
-        // Shopify mailer / the store-facing "New customer message…" subject.
+        // A NORMAL in-thread reply to the Shopify contact-form notification —
+        // preserves the RE: subject, In-Reply-To/References and conversationId, so
+        // it stays threaded under the original in our mailbox. We ONLY re-address
+        // it to the REAL customer (from Reply-To/body) instead of the Shopify
+        // mailer. (Do NOT override the subject — a clean subject changes the
+        // Exchange conversation topic and detaches the reply into a new thread.)
         ({ graphMessageId, webLink } = await createReplyDraft(msg.id, bodyHtml, {
           to: customer,
-          subject: contactFormSubject(classification.language),
           categories: draftCategories,
           flagged: escalate,
         }));
