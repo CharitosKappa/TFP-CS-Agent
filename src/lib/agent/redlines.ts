@@ -127,6 +127,21 @@ export const RED_LINE_RULES: RedLineRule[] = [
     phrases: ["cancel my order", "cancel the order", "ακυρωση παραγγελ", "ακυρωση της παραγγελ"],
   },
   {
+    key: "order_modification",
+    description: "Αίτημα ΤΡΟΠΟΠΟΙΗΣΗΣ παραγγελίας πριν την αποστολή (αλλαγή μεγέθους/χρώματος/προϊόντος/ποσότητας/διεύθυνσης) — μη-αυτόνομη, χρονικά κρίσιμη ενέργεια που εξαρτάται από το στάδιο εκτέλεσης· ανάληψη από άνθρωπο (ο agent δεν τροποποιεί παραγγελίες)",
+    // Keyword backstop (EL + EN)· άλλες γλώσσες πιάνονται σημασιολογικά από τον classifier.
+    stems: ["τροποποιησ"],
+    phrases: [
+      "αλλαγη μεγεθους", "να αλλαξω μεγεθος", "αλλαγη χρωματος", "να αλλαξω χρωμα",
+      "αλλαγη διευθυνσης", "να αλλαξω τη διευθυνση", "να αλλαξω την παραγγελ", "αλλαγη στην παραγγελ",
+      "change the size", "change my size", "change the color", "change the colour",
+      "change my order", "modify my order", "modify the order",
+      "change the address", "change my address", "change my shipping address",
+      "change the shipping address", "change delivery address",
+      "update my address", "update the address", "update my shipping address",
+    ],
+  },
+  {
     key: "product_defect",
     description: "Ελαττωματικό/χαλασμένο προϊόν ή αίτημα αντικατάστασης",
     // Policy: defect/replacement complaints reach a human even without explicit
