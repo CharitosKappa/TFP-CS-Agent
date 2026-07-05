@@ -5,7 +5,7 @@ import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from 
 import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
 import { extractProductHandles } from "../shopify/products";
-import { extractOrderNumber } from "../shopify/orders";
+import { extractOrderNumber, resolveOrderName } from "../shopify/orders";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
 export interface DraftReplyInput {
@@ -62,6 +62,16 @@ export async function draftReplyForInbound(
   if (!classification.orderNumber) {
     const fromThread = extractOrderNumber([input.subject ?? "", ...input.recentMessages.map((m) => m.body)].join("\n"));
     if (fromThread) classification.orderNumber = fromThread;
+  }
+
+  // Reconcile the number to a REAL order: customers routinely paste the tracking/
+  // shipment number thinking it's the order number (e.g. "9752358348" → order
+  // #49841). Resolving it here means the Shopify/Odoo lookups, the draft, the task
+  // title, and supersede-by-order all key off the same true order. Leave the value
+  // untouched if it resolves to nothing, so a human still sees what the customer sent.
+  if (classification.orderNumber) {
+    const real = await resolveOrderName(classification.orderNumber).catch(() => null);
+    if (real) classification.orderNumber = real;
   }
 
   // Gather external context concurrently — each is best-effort and isolated, so

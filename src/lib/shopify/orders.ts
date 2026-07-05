@@ -147,6 +147,34 @@ export function extractOrderNumber(text: string): string | undefined {
   return m?.[1];
 }
 
+const ORDER_TRACKING_SEARCH = `query($q: String!) {
+  orders(first: 10, query: $q) {
+    edges { node { name fulfillments { trackingInfo { number } } } }
+  }
+}`;
+
+/**
+ * Resolves a customer-provided value to a real order NAME (digits, no "#").
+ * Accepts an order number directly, or a TRACKING number — customers often paste
+ * the shipment/tracking number thinking it's the order number. If it isn't an
+ * order name, we search and confirm it against orders' tracking numbers. Returns
+ * null if it resolves to neither.
+ */
+export async function resolveOrderName(value: string): Promise<string | null> {
+  const v = value.replace(/^#/, "").trim();
+  if (!v) return null;
+  if (await getOrderByName(v)) return v; // already a real order number
+  try {
+    const edges = (await shopifyGraphQL<{
+      orders: { edges: { node: { name: string; fulfillments: { trackingInfo: { number: string | null }[] }[] } }[] };
+    }>(ORDER_TRACKING_SEARCH, { q: v })).orders.edges;
+    const match = edges.find((e) => e.node.fulfillments.some((f) => f.trackingInfo.some((t) => t.number === v)));
+    return match ? match.node.name.replace(/^#/, "") : null;
+  } catch {
+    return null; // best-effort — a failed tracking lookup must not block drafting
+  }
+}
+
 /** Looks up a single order by its name/number (e.g. "1023" or "#1023"). */
 export async function getOrderByName(
   orderNumber: string,
