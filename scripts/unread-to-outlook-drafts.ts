@@ -250,9 +250,11 @@ async function main() {
       // A follow-up or escalation needs a human to act/decide → create a Planner
       // task so it's tracked on the team board, not just as an email in Drafts.
       if (result.promisesFollowUp || escalate) {
-        // Clean, consistent SHORT title: "<essence> — #<order>"; details in notes.
+        // Title: "<customer email> — <essence> — #<order>"; details in notes.
         const essence = result.followUpTitle || (escalate ? "Έλεγχος/απόφαση" : "Follow-up");
-        const title = classification.orderNumber ? `${essence} — #${classification.orderNumber}` : essence;
+        const title = [customer, essence, classification.orderNumber ? `#${classification.orderNumber}` : ""]
+          .filter(Boolean)
+          .join(" — ");
         // Notes: always Greek, information-rich, and structured into three parts
         // separated by a blank line — (Α) περίληψη ζητήματος, (Β) στοιχεία + draft
         // link, (Γ) απόφαση/ενέργεια. filter(Boolean) runs PER PART so absent
