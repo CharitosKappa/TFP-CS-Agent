@@ -147,8 +147,13 @@ export const RED_LINE_RULES: RedLineRule[] = [
     // Policy: defect/replacement complaints reach a human even without explicit
     // "ποιότητα" wording — e.g. "χάλασε", "φθαρμένο", "προς αντικατάσταση". This
     // intentionally escalates most replacement RMAs (a deliberate trade-off).
-    stems: ["ελαττωμ", "φθαρ", "φθορ", "χαλασ", "αντικαταστ", "defect", "damag", "replac"],
-    words: ["faulty", "broken", "torn", "ripped"],
+    // NOT a bare "replac" stem: "will you replace the model in 39?" means
+    // RESTOCK, not a defect (false-escalated a real stock question). Replacement
+    // intent is caught by "replacement" / possessive-pronoun phrases (a specific
+    // item the customer HAS), the defect terms, and the semantic classifier.
+    stems: ["ελαττωμ", "φθαρ", "φθορ", "χαλασ", "αντικαταστ", "defect", "damag"],
+    words: ["faulty", "broken", "torn", "ripped", "replacement"],
+    phrases: ["replace it", "replace them", "replace my", "be replaced"],
   },
 ];
 
