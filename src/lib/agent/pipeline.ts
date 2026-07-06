@@ -4,6 +4,7 @@ import { generateDraft } from "./draft";
 import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from "./redlines";
 import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
+import { extractRmaNumber } from "../odoo/rma";
 import { extractProductHandles } from "../shopify/products";
 import { extractOrderNumber, resolveOrderName } from "../shopify/orders";
 import type { Classification, DraftResult, PromptContext } from "./types";
@@ -55,6 +56,28 @@ export async function draftReplyForInbound(
 ): Promise<DraftResult> {
   const classification =
     input.classification ?? (await classifyEmail(input.incomingMessage, input.subject));
+
+  // Backstop for a known misparse: digits lifted from an RMA reference (subject
+  // "RMA5278" → orderNumber "5278"). If the number appears in what the classifier
+  // saw ONLY inside an RMA token, it's a return number, not an order — drop it
+  // before resolveOrderName "confirms" it against some unrelated old order.
+  if (classification.orderNumber) {
+    const seen = `${input.subject ?? ""}\n${input.incomingMessage}`;
+    const withoutRma = seen.replace(/\bRMA[\s#:-]*\d+/gi, "");
+    if (seen.includes(classification.orderNumber) && !withoutRma.includes(classification.orderNumber)) {
+      classification.orderNumber = undefined;
+    }
+  }
+
+  // The RMA reference itself (e.g. "RMA5278" in the subject of our acceptance
+  // email) is the most precise Odoo key — extract it deterministically so the
+  // return lookup targets exactly the RMA the thread is about.
+  if (!classification.rmaNumber) {
+    const rma = extractRmaNumber(
+      [input.subject ?? "", input.incomingMessage, ...input.recentMessages.map((m) => m.body)].join("\n"),
+    );
+    if (rma) classification.rmaNumber = rma;
+  }
 
   // Resolve the order number from the subject + thread when the current message
   // omits it (e.g. a "cancel the order" follow-up) — so the order-keyed lookups,

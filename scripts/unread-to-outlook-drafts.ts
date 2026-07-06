@@ -183,6 +183,7 @@ async function main() {
         gatherOdoo: (c) =>
           gatherOdooContext({
             orderNumber: c.orderNumber,
+            rmaNumber: c.rmaNumber,
             customerEmail: customer,
             asksForReturnLabel: c.asksForReturnLabel,
           }),

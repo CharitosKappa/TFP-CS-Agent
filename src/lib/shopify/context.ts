@@ -130,7 +130,16 @@ export async function gatherShopifyContext(input: {
     let orderAdded = false;
     if (input.orderNumber) {
       const order = await getOrderByName(input.orderNumber);
-      if (order) {
+      // Ownership: if the order carries an email that ISN'T the verified sender,
+      // the number reached us wrong (misparse/typo/foreign) — showing the order
+      // would leak another customer's data into this reply. Skip it; the sender's
+      // own latest order still surfaces via the customer block below.
+      const foreign = !!(
+        order?.email && input.customerEmail &&
+        order.email.toLowerCase() !== input.customerEmail.toLowerCase()
+      );
+      if (foreign) log.warn("shopify_order_owner_mismatch", {});
+      if (order && !foreign) {
         parts.push(formatOrder(order));
         orderAdded = true;
       }

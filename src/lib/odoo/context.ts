@@ -2,6 +2,7 @@ import { fmtDate } from "../util/date";
 import { log } from "../observability/logger";
 import {
   findRmaRecordsByCustomerEmail,
+  findRmaRecordsByName,
   findRmaRecordsByOrder,
   hydrateRma,
   type RmaRecord,
@@ -66,19 +67,34 @@ export interface OdooGatherResult {
 export async function gatherOdooContext(input: {
   customerEmail?: string;
   orderNumber?: string;
+  /** Canonical RMA reference cited in the email (e.g. "RMA5278") — most precise key. */
+  rmaNumber?: string;
   /** Customer explicitly asked to receive/resend the return voucher. */
   asksForReturnLabel?: boolean;
 }): Promise<OdooGatherResult | undefined> {
   try {
-    // Prefer the order when known (most precise); else look up by customer email.
-    // Search returns lightweight records; we hydrate only the one we keep.
+    // Precedence: explicit RMA reference → order → customer email. The first two
+    // are ownership-checked against the verified sender inside the Odoo domain,
+    // so a misparsed or foreign number can never surface another customer's
+    // return. Search returns lightweight records; we hydrate only the one we keep.
+    const email = input.customerEmail;
     let records: RmaRecord[] = [];
+    if (input.rmaNumber) {
+      records = await findRmaRecordsByName(input.rmaNumber, email);
+      // The email cites a SPECIFIC RMA we can't match to this sender (typo, or a
+      // partner email that differs from the sender). Falling back to order/email
+      // would describe a DIFFERENT return than the one the customer asked about —
+      // better to give the agent nothing, so it asks instead of misinforming.
+      if (records.length === 0) return undefined;
+    }
     // Strip the Shopify "#" prefix/whitespace before matching Odoo order_id.name
     // (the Shopify path strips it too — "#43605" would otherwise never match).
     const orderNumber = input.orderNumber?.replace(/^#/, "").trim();
-    if (orderNumber) records = await findRmaRecordsByOrder(orderNumber);
-    if (records.length === 0 && input.customerEmail) {
-      records = await findRmaRecordsByCustomerEmail(input.customerEmail);
+    if (records.length === 0 && orderNumber) {
+      records = await findRmaRecordsByOrder(orderNumber, email);
+    }
+    if (records.length === 0 && email) {
+      records = await findRmaRecordsByCustomerEmail(email);
     }
     if (records.length === 0) return undefined;
 

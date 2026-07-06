@@ -20,6 +20,12 @@ export interface Classification {
   /** ISO language code of the customer's message, e.g. "el", "en". */
   language: string;
   orderNumber?: string;
+  /**
+   * Canonical RMA reference (e.g. "RMA5278") when the subject/thread cites one.
+   * Set deterministically by the pipeline (regex, not the triage model) — the
+   * most precise key for the Odoo return lookup.
+   */
+  rmaNumber?: string;
   customerEmail?: string;
   /** Discount/coupon code the customer mentions, if any (for Shopify lookup). */
   couponCode?: string;

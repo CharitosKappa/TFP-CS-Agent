@@ -201,9 +201,34 @@ export async function hydrateRma(r: RmaRecord): Promise<RmaSummary> {
   return toSummary(r, lines, vouchers.get(r.id) ?? null);
 }
 
-/** Records of all RMAs linked to a sales order, by the order's reference (e.g. "50530"). */
-export async function findRmaRecordsByOrder(orderName: string): Promise<RmaRecord[]> {
-  return searchRmaRecords([["order_id.name", "=", orderName]]);
+/**
+ * Best-effort extraction of an RMA reference from free text (subject/body), e.g.
+ * "RMA5278", "rma 5278", "RMA-5278". Returns the canonical Odoo name — "RMA" +
+ * digits zero-padded to 4 (names on staging/prod read RMA0436, RMA5278, …) — or
+ * undefined when the text cites none.
+ */
+export function extractRmaNumber(text: string): string | undefined {
+  const m = text.match(/\bRMA[\s#:-]*(\d{1,6})\b/i);
+  return m ? `RMA${m[1].padStart(4, "0")}` : undefined;
+}
+
+/**
+ * Records of all RMAs linked to a sales order, by the order's reference (e.g.
+ * "50530"). When `customerEmail` is given, only RMAs whose partner matches it
+ * are returned — an order number that reached us misparsed, or that belongs to
+ * someone else, must never surface another customer's return.
+ */
+export async function findRmaRecordsByOrder(orderName: string, customerEmail?: string): Promise<RmaRecord[]> {
+  const domain: unknown[] = [["order_id.name", "=", orderName]];
+  if (customerEmail) domain.push(["partner_id.email", "=ilike", customerEmail]);
+  return searchRmaRecords(domain);
+}
+
+/** Records matched by the RMA reference itself (e.g. "RMA5278"); same ownership rule as above. */
+export async function findRmaRecordsByName(rmaName: string, customerEmail?: string): Promise<RmaRecord[]> {
+  const domain: unknown[] = [["name", "=ilike", rmaName]];
+  if (customerEmail) domain.push(["partner_id.email", "=ilike", customerEmail]);
+  return searchRmaRecords(domain);
 }
 
 /** Records of all RMAs for a customer, matched on the partner's email. */

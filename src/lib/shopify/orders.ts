@@ -4,6 +4,8 @@ import { orderNameQuery } from "./search";
 
 export interface ShopifyOrderSummary {
   name: string;
+  /** The email on the order — used to verify the order belongs to the sender. */
+  email?: string | null;
   createdAt: string;
   fulfillmentStatus: string;
   financialStatus: string;
@@ -29,6 +31,7 @@ export interface ShopifyOrderSummary {
 
 interface OrderNode {
   name: string;
+  email: string | null;
   createdAt: string;
   displayFulfillmentStatus: string;
   displayFinancialStatus: string;
@@ -43,7 +46,7 @@ interface OrderNode {
 const ORDER_QUERY = `query($q: String!) {
   orders(first: 1, query: $q) {
     edges { node {
-      name createdAt displayFulfillmentStatus displayFinancialStatus
+      name email createdAt displayFulfillmentStatus displayFinancialStatus
       totalPriceSet { shopMoney { amount currencyCode } }
       shippingLine { title }
       transactions(first: 50) { gateway kind status }
@@ -195,6 +198,7 @@ export async function getOrderByName(
 
   return {
     name: node.name,
+    email: node.email ?? null,
     createdAt: node.createdAt,
     fulfillmentStatus: node.displayFulfillmentStatus,
     financialStatus: node.displayFinancialStatus,
