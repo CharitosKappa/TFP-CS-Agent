@@ -114,21 +114,41 @@ async function main() {
     console.log(`↯ ${sorted.length} same-request messages from ${maskEmail(cust)} → drafting once + escalating`);
   }
 
+  // Ids of messages that actually got a draft this run — folding a duplicate is
+  // conditional on its kept sibling being in here (see below).
+  const draftedIds = new Set<string>();
+
   for (const { msg, customer, text, isContactForm } of resolved) {
     const subject = msg.subject ?? undefined;
     try {
-      // Folded (older) duplicate: a same-request sibling is being drafted once, so
-      // this one is dismissed AS A REPLY OBLIGATION — mark it READ so it drops out of
-      // the unread queue, and tag it (traceability + idempotency). No draft, no task,
-      // no flag, no escalation: those all live on the kept (newest) message.
+      // Folded (older) duplicate: a same-request sibling was kept for drafting.
+      // Dismiss this one ONLY if that sibling actually produced a draft — the kept
+      // (newest) message can itself be skipped (e.g. requiresReply=false because
+      // its body is just a forwarded shop notification, with the request living in
+      // this older sibling's body) or fail; dismissing the duplicate then would
+      // silently drop the customer's request. The kept message is always processed
+      // first (resolved is newest-first), so the outcome is known here.
       const keptId = foldedInto.get(msg.id);
-      if (keptId) {
+      if (keptId && draftedIds.has(keptId)) {
+        // Dismissed AS A REPLY OBLIGATION — mark it READ so it drops out of the
+        // unread queue, and tag it (traceability + idempotency). No draft, no task,
+        // no flag, no escalation: those all live on the kept (newest) message.
         const cats = Array.from(new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, "TFP: Consolidated duplicate"]));
         await flagMessage(msg.id, { categories: cats });
         await markMessageRead(msg.id);
         consolidatedDupes++;
         console.log(`↯ folded duplicate of ${keptId.slice(0, 12)}… — read + tagged, not drafted: ${msg.id.slice(0, 12)}…`);
         continue;
+      }
+      if (keptId) {
+        // The kept sibling produced NO draft — promote this message to "kept":
+        // process it normally and re-point any remaining siblings to it.
+        foldedInto.delete(msg.id);
+        for (const [dupId, k] of foldedInto) if (k === keptId) foldedInto.set(dupId, msg.id);
+        const remaining = (foldedCount.get(keptId) ?? 1) - 1;
+        foldedCount.delete(keptId);
+        if (remaining > 0) foldedCount.set(msg.id, remaining);
+        console.log(`↯ kept sibling ${keptId.slice(0, 12)}… produced no draft — processing this one instead: ${msg.id.slice(0, 12)}…`);
       }
 
       const classification = await classifyEmail(text, subject);
@@ -301,6 +321,7 @@ async function main() {
         if (taskId) console.log(`  → Planner task: ${title}`);
       }
       drafted++;
+      draftedIds.add(msg.id);
       if (escalate) escalated++;
       console.log(
         `✓ draft → ${maskEmail(customer)}${isContactForm ? " [contact-form]" : ""}` +
