@@ -39,6 +39,12 @@ function formatRma(r: RmaSummary): string {
       ? `- Ετικέτα/voucher επιστροφής: έχει εκδοθεί και απεστάλη συνημμένη στο email αποδοχής του RMA`
       : "",
     items ? `- Είδη προς επιστροφή: ${items}` : "",
+    // Business rule: one open RMA at a time — the portal rejects a second request
+    // until the current one closes (processed/cancelled). Stated on ACTIVE RMAs so
+    // the agent can explain a "the portal won't let me submit" complaint.
+    !TERMINAL_STATES.has(r.stateCode)
+      ? `- Όσο αυτή η επιστροφή είναι ΣΕ ΕΞΕΛΙΞΗ, ο πελάτης ΔΕΝ μπορεί να υποβάλει ΝΕΟ αίτημα επιστροφής στην πύλη — νέο RMA γίνεται δεκτό μόνο όταν το τρέχον ολοκληρωθεί ή ακυρωθεί`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
