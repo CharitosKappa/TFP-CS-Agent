@@ -6,7 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
-import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, sizeFilterUrl, type ShopifyProductSummary } from "./products";
+import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, searchProductHandlesByName, sizeFilterUrl, type ShopifyProductSummary } from "./products";
 
 function formatDiscount(d: ShopifyDiscountSummary): string {
   const status =
@@ -110,6 +110,29 @@ function formatProduct(p: ShopifyProductSummary): string {
 }
 
 /**
+ * A product's prompt block; when the size the customer asked about is sold out
+ * on this product, appends the two fallbacks — another colour of the same model
+ * that has the size, and a category link filtered to available items in it.
+ */
+async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promise<string> {
+  let block = formatProduct(p);
+  const askedEntry = askedSize ? p.sizes.find((s) => s.size === askedSize) : undefined;
+  if (askedSize && askedEntry && !askedEntry.available) {
+    const alts: string[] = [];
+    if (p.master) {
+      const siblings = (await colourSiblingsWithSize(p.master, askedSize).catch(() => []))
+        .filter((s) => s.handle !== p.handle);
+      if (siblings.length) alts.push(`- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${askedSize} διαθέσιμο: ${siblings.map((s) => s.title).join(", ")}`);
+    }
+    if (p.categoryCollectionHandle) {
+      alts.push(`- Σύνδεσμος διαθέσιμων «${p.categoryName ?? "προϊόντων"}» στο μέγεθος ${askedSize}: ${sizeFilterUrl(p.categoryCollectionHandle, askedSize)}`);
+    }
+    if (alts.length) block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${askedSize} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν. Πρότεινε:\n${alts.join("\n")}`;
+  }
+  return block;
+}
+
+/**
  * Fetches the Shopify data relevant to a message (fresh, on-demand) and formats
  * it as a compact text block for the prompt. Best-effort: never throws — a
  * Shopify failure must not block drafting.
@@ -127,6 +150,9 @@ export async function gatherShopifyContext(input: {
 }): Promise<string | undefined> {
   const parts: string[] = [];
   try {
+    // The customer's orders shown in this context — a size/fit question without a
+    // product link resolves its product from these line items (see below).
+    const surfacedOrders: ShopifyOrderSummary[] = [];
     let orderAdded = false;
     if (input.orderNumber) {
       const order = await getOrderByName(input.orderNumber);
@@ -141,6 +167,7 @@ export async function gatherShopifyContext(input: {
       if (foreign) log.warn("shopify_order_owner_mismatch", {});
       if (order && !foreign) {
         parts.push(formatOrder(order));
+        surfacedOrders.push(order);
         orderAdded = true;
       }
     }
@@ -153,7 +180,10 @@ export async function gatherShopifyContext(input: {
         // don't include a number.
         if (!orderAdded && customer.recentOrders[0]) {
           const latest = await getOrderByName(customer.recentOrders[0].name).catch(() => null);
-          if (latest) parts.push(formatOrder(latest));
+          if (latest) {
+            parts.push(formatOrder(latest));
+            surfacedOrders.push(latest);
+          }
         }
       }
     }
@@ -177,6 +207,9 @@ export async function gatherShopifyContext(input: {
     // Fit Advice so the reply can advise on sizing from real data. Isolated per
     // handle so one failing lookup doesn't block the rest.
     let resolvedProduct = false;
+    // Handles of product blocks already pushed — the three resolution paths
+    // (links → name search → order items) overlap, so dedupe across them.
+    const shownHandles = new Set<string>();
     if (input.productHandles?.length) {
       const products = await Promise.all(
         input.productHandles
@@ -186,25 +219,57 @@ export async function gatherShopifyContext(input: {
       for (const p of products) {
         if (!p) continue;
         resolvedProduct = true;
-        let block = formatProduct(p);
-        // Customer asked about a specific size that's sold out on THIS product →
-        // give the reviewer the two fallbacks: another colour of the same model
-        // that has the size, and a filtered link to available items in that size.
-        const asked = input.productSize;
-        const askedEntry = asked ? p.sizes.find((s) => s.size === asked) : undefined;
-        if (asked && askedEntry && !askedEntry.available) {
-          const alts: string[] = [];
-          if (p.master) {
-            const siblings = (await colourSiblingsWithSize(p.master, asked).catch(() => []))
-              .filter((s) => s.handle !== p.handle);
-            if (siblings.length) alts.push(`- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${asked} διαθέσιμο: ${siblings.map((s) => s.title).join(", ")}`);
-          }
-          if (p.categoryCollectionHandle) {
-            alts.push(`- Σύνδεσμος διαθέσιμων «${p.categoryName ?? "προϊόντων"}» στο μέγεθος ${asked}: ${sizeFilterUrl(p.categoryCollectionHandle, asked)}`);
-          }
-          if (alts.length) block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${asked} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν. Πρότεινε:\n${alts.join("\n")}`;
-        }
-        parts.push(block);
+        shownHandles.add(p.handle);
+        parts.push(await productBlock(p, input.productSize));
+      }
+    }
+    // The customer explicitly LINKED products — those are authoritative for what
+    // they're asking about, so the search/order paths below stay off in that case.
+    const resolvedFromLinks = resolvedProduct;
+    // Customer NAMED a product without a link — usually in the storefront
+    // language they browsed (e.g. «Σουέντ σανδάλια με velcro - Μαύρο», the Greek
+    // TRANSLATION of an English admin title), which the Admin API title query
+    // can't match. The storefront's predictive search indexes the localized
+    // content, so it resolves the typed name (any storefront language) to handles.
+    if (!resolvedProduct && input.productName) {
+      const found = await searchProductHandlesByName(input.productName);
+      for (const h of found) {
+        if (shownHandles.has(h)) continue;
+        const p = await getProductByHandle(h).catch(() => null);
+        if (!p) continue;
+        resolvedProduct = true;
+        shownHandles.add(p.handle);
+        parts.push(
+          `Πιθανό προϊόν που περιγράφει ο πελάτης (ταυτοποιήθηκε με αναζήτηση του ονόματος στο eshop). ` +
+            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize)}`,
+        );
+      }
+    }
+    // Product/size question with no link, and the customer's order is already on
+    // screen: the product they mean is often one of the order's own line items
+    // ("έκανα πριν λίγο παραγγελία το μοντέλο Χ — πώς πάει το 38;"). Resolve those
+    // too (deduped against the name-search result above) so the reply answers from
+    // real data — instead of the ask-for-a-link fallback below firing and
+    // overriding order data the model can already see.
+    if (!resolvedFromLinks && (input.productSize || input.productName) && surfacedOrders.length) {
+      const handles = [
+        ...new Set(
+          surfacedOrders
+            .flatMap((o) => o.lineItems.map((li) => li.productHandle))
+            .filter((h): h is string => Boolean(h)),
+        ),
+      ]
+        .filter((h) => !shownHandles.has(h))
+        .slice(0, 3);
+      const products = await Promise.all(handles.map((h) => getProductByHandle(h).catch(() => null)));
+      for (const p of products) {
+        if (!p) continue;
+        resolvedProduct = true;
+        shownHandles.add(p.handle);
+        parts.push(
+          `Προϊόν από τα ΕΙΔΗ ΤΗΣ ΠΑΡΑΓΓΕΛΙΑΣ του πελάτη (δεν έδωσε link — ταυτοποιήθηκε από την παραγγελία του). ` +
+            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize)}`,
+        );
       }
     }
     // Size question, but we couldn't resolve the exact product (named without a

@@ -1,8 +1,12 @@
+import { resilientFetch } from "../http/resilient";
 import { shopifyGraphQL } from "./client";
 import { handleQuery } from "./search";
 
 /** Public storefront base (locale path) for building customer-facing links. */
 const STOREFRONT = "https://www.thefashionproject.gr/en-eu";
+
+/** Storefront root (default/Greek locale) — its search matches localized titles. */
+const STOREFRONT_ROOT = "https://www.thefashionproject.gr";
 
 /** Option name that carries the shoe size, across possible localisations. */
 const SIZE_OPTION_RE = /size|μέγεθ|νούμερ/i;
@@ -135,6 +139,35 @@ export function extractProductHandles(text: string): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(HANDLE_RE)) out.add(m[1].toLowerCase());
   return [...out];
+}
+
+/**
+ * Resolves a product NAME the customer typed to product handles, via the public
+ * storefront predictive-search endpoint. Customers usually quote the title in
+ * the STOREFRONT language (e.g. «Σουέντ σανδάλια με velcro - Μαύρο»), which is a
+ * TRANSLATION — the Admin API only matches the primary (English) title, so it
+ * finds nothing there. The storefront search indexes the shop's localized
+ * content and matches the name in either language. Best-effort: [] on failure.
+ */
+export async function searchProductHandlesByName(name: string, limit = 2): Promise<string[]> {
+  const q = name.trim();
+  if (!q) return [];
+  const url =
+    `${STOREFRONT_ROOT}/search/suggest.json?q=${encodeURIComponent(q)}` +
+    `&resources%5Btype%5D=product&resources%5Blimit%5D=${limit}`;
+  try {
+    const res = await resilientFetch(url, { headers: { accept: "application/json" } });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      resources?: { results?: { products?: { handle?: string }[] } };
+    };
+    return (data.resources?.results?.products ?? [])
+      .map((p) => p.handle)
+      .filter((h): h is string => Boolean(h))
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
 }
 
 const VARIANTS_BY_SKU = `query($q: String!) {

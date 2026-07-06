@@ -15,7 +15,8 @@ export interface ShopifyOrderSummary {
   /** The shipping method/courier the customer chose, e.g. "ACS GR", "Box Now". */
   shippingMethod?: string | null;
   trackings: { number?: string | null; company?: string | null; url?: string | null }[];
-  lineItems: { title: string; quantity: number; variantTitle?: string | null }[];
+  /** productHandle lets a size/fit question resolve the product straight from the order. */
+  lineItems: { title: string; quantity: number; variantTitle?: string | null; productHandle?: string | null }[];
   shippingCity?: string | null;
   /**
    * Shopify's fulfillment/delivery estimates (ISO datetimes) for an unfulfilled
@@ -39,7 +40,7 @@ interface OrderNode {
   shippingLine?: { title: string | null } | null;
   transactions: { gateway: string | null; kind: string; status: string }[];
   fulfillments: { trackingInfo: { number?: string; company?: string; url?: string }[] }[];
-  lineItems: { edges: { node: { title: string; quantity: number; variantTitle?: string | null } }[] };
+  lineItems: { edges: { node: { title: string; quantity: number; variantTitle?: string | null; product?: { handle: string } | null } }[] };
   shippingAddress?: { city?: string | null } | null;
 }
 
@@ -51,7 +52,7 @@ const ORDER_QUERY = `query($q: String!) {
       shippingLine { title }
       transactions(first: 50) { gateway kind status }
       fulfillments { trackingInfo { number company url } }
-      lineItems(first: 25) { edges { node { title quantity variantTitle } } }
+      lineItems(first: 25) { edges { node { title quantity variantTitle product { handle } } } }
       shippingAddress { city }
     } }
   }
@@ -211,6 +212,7 @@ export async function getOrderByName(
       title: e.node.title,
       quantity: e.node.quantity,
       variantTitle: e.node.variantTitle ?? null,
+      productHandle: e.node.product?.handle ?? null,
     })),
     shippingCity: node.shippingAddress?.city ?? null,
     deliveryEstimate,
