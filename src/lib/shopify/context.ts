@@ -8,6 +8,12 @@ import {
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, searchProductHandlesByName, sizeFilterUrl, type ShopifyProductSummary } from "./products";
 
+// How many of a customer's most recent orders to expand in full (items, courier,
+// tracking, estimate) when the message cites no order number — enough to cover a
+// customer juggling several concurrent orders, bounded for prompt cost. Older
+// orders still appear as one-line entries in the customer block (getCustomerByEmail).
+const RECENT_ORDERS_TO_SURFACE = 5;
+
 function formatDiscount(d: ShopifyDiscountSummary): string {
   const status =
     d.status === "ACTIVE"
@@ -175,14 +181,23 @@ export async function gatherShopifyContext(input: {
       const customer = await getCustomerByEmail(input.customerEmail);
       if (customer) {
         parts.push(formatCustomer(customer));
-        // No order number cited? Surface the customer's most recent order in full
-        // (status, tracking, delivery estimate) — most "where's my order?" emails
-        // don't include a number.
-        if (!orderAdded && customer.recentOrders[0]) {
-          const latest = await getOrderByName(customer.recentOrders[0].name).catch(() => null);
-          if (latest) {
-            parts.push(formatOrder(latest));
-            surfacedOrders.push(latest);
+        // No order number cited? Surface the customer's recent orders in FULL —
+        // not just the latest. A customer with several open orders often asks
+        // about a specific one by its CONTENTS ("my other order of three shoes"),
+        // so only expanding the newest left the draft blind to it — it couldn't
+        // name the order, its courier, or its tracking. Expanding the recent few
+        // lets the reply match the right order and quote its tracking + courier.
+        if (!orderAdded && customer.recentOrders.length) {
+          const recent = await Promise.all(
+            customer.recentOrders
+              .slice(0, RECENT_ORDERS_TO_SURFACE)
+              .map((o) => getOrderByName(o.name).catch(() => null)),
+          );
+          for (const order of recent) {
+            if (order) {
+              parts.push(formatOrder(order));
+              surfacedOrders.push(order);
+            }
           }
         }
       }

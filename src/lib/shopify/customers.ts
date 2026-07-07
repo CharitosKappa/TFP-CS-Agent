@@ -41,7 +41,7 @@ const CUSTOMER_QUERY = `query($q: String!) {
     edges { node {
       firstName lastName defaultEmailAddress { emailAddress } numberOfOrders
       amountSpent { amount currencyCode }
-      orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+      orders(first: 10, sortKey: CREATED_AT, reverse: true) {
         edges { node { name createdAt displayFulfillmentStatus displayFinancialStatus } }
       }
     } }
