@@ -50,7 +50,7 @@ function formatDeliveryEstimate(
 
 function formatOrder(o: ShopifyOrderSummary): string {
   const items = o.lineItems
-    .map((li) => `${li.quantity}× ${li.title}${li.variantTitle ? ` (${li.variantTitle})` : ""}`)
+    .map((li) => `${li.quantity}× ${li.title}${li.variantTitle ? ` (${li.variantTitle})` : ""}${li.sku ? ` (SKU: ${li.sku})` : ""}`)
     .join(", ");
   const tracking = o.trackings
     .filter((t) => t.number || t.url)
