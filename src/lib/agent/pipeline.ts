@@ -197,7 +197,16 @@ export async function draftReplyForInbound(
     reviewerGuidance: input.reviewerGuidance,
   };
 
-  const { content, promisesFollowUp, followUpTitle, followUpDetails } = await generateDraft(ctx);
+  const { content, promisesFollowUp, needsHumanAnswer, followUpTitle, followUpDetails } = await generateDraft(ctx);
+
+  // The draft couldn't answer the customer's specific (usually product/technical)
+  // question from the data — it only deferred. Escalate so a human with product
+  // knowledge answers, using this draft as the base, rather than the deferral
+  // being sent as the final word.
+  if (needsHumanAnswer) {
+    redline.escalate = true;
+    if (!redline.reasons.includes("needs_human_answer")) redline.reasons.push("needs_human_answer");
+  }
 
   const reasoning =
     `intent=${classification.intent} confidence=${classification.confidence.toFixed(2)} ` +

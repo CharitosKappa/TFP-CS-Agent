@@ -23,6 +23,8 @@ export interface ShopifyProductSummary {
   fitAdvice?: string | null;
   /** custom.fit_and_sizing metafield — fuller fit/sizing guidance text. */
   fitAndSizing?: string | null;
+  /** custom.color_sku — the model+colour SKU (shared across sizes), e.g. "21344096". */
+  colorSku?: string | null;
   /** Per-size availability, from the product's variants. */
   sizes: { size: string; available: boolean }[];
   /**
@@ -42,6 +44,7 @@ const PRODUCT_FIELDS = `
   title handle status totalInventory
   fitAdvice: metafield(namespace: "custom", key: "fit_advice") { value }
   fitAndSizing: metafield(namespace: "custom", key: "fit_and_sizing") { value }
+  colorSku: metafield(namespace: "custom", key: "color_sku") { value }
   notify: metafield(namespace: "custom", key: "disable_notify_me_feature") { value }
   category { name }
   collections(first: 40) { edges { node { handle title } } }
@@ -60,6 +63,7 @@ interface ProductNode {
   totalInventory: number;
   fitAdvice?: { value: string } | null;
   fitAndSizing?: { value: string } | null;
+  colorSku?: { value: string } | null;
   notify?: { value: string } | null;
   category?: { name: string } | null;
   collections: { edges: { node: { handle: string; title: string } }[] };
@@ -102,6 +106,7 @@ function toSummary(n: ProductNode): ShopifyProductSummary {
     totalInventory: n.totalInventory,
     fitAdvice: parseListText(n.fitAdvice?.value),
     fitAndSizing: n.fitAndSizing?.value?.trim() || null,
+    colorSku: n.colorSku?.value?.trim() || null,
     sizes,
     master: sku ? sku.slice(0, 5) : null,
     notifyMeEnabled: (n.notify?.value ?? "true") === "false",

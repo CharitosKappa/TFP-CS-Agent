@@ -103,7 +103,7 @@ function formatProduct(p: ShopifyProductSummary): string {
   const inStock = p.sizes.filter((s) => s.available).map((s) => s.size);
   const soldOut = p.sizes.filter((s) => !s.available).map((s) => s.size);
   return [
-    `Προϊόν: ${p.title}`,
+    `Προϊόν: ${p.title}${p.colorSku ? ` (SKU: ${p.colorSku})` : ""}`,
     p.fitAdvice ? `- Fit Advice (εφαρμογή): ${p.fitAdvice}` : "",
     p.fitAndSizing ? `- Οδηγίες μεγέθους/εφαρμογής: ${p.fitAndSizing}` : "",
     p.sizes.length
