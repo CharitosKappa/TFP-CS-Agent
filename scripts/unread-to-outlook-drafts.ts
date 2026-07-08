@@ -188,6 +188,8 @@ async function main() {
         images: media.images,
         attachmentSummary: media.summary,
         classification,
+        // Verified sender — scopes the non-order-identifier → order resolution.
+        customerEmail: customer,
         // Account/PII lookups are keyed to the VERIFIED sender (`customer`), never
         // to `c.customerEmail` (model-extracted from the body). A different body
         // email escalates via identityMismatch above; it never redirects lookups.

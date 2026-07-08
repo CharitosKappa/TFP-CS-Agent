@@ -151,6 +151,21 @@ export function extractOrderNumber(text: string): string | undefined {
   return m?.[1];
 }
 
+// Identifiers customers routinely paste that are NOT the order number: RMA refs,
+// Greek accounting-document series (ΑΛΠ/ΤΔΑ/ΤΠΥ/… receipts & invoices), and Odoo
+// warehouse-move names (LGK/OUT/…). Their embedded digits must not be mistaken
+// for an order number (e.g. "ΑΛΠ/2026/-16839" → a bogus order "16839").
+const NON_ORDER_ID_RE: RegExp[] = [
+  /RMA[\s#:-]*\d+/giu,
+  /[Α-Ω]{2,4}\/\d{2,4}\/-?\d+/gu, // ΑΛΠ/2026/-16839
+  /[A-Z]{2,4}\/(?:OUT|IN|INT)\/\d+/gu, // LGK/OUT/49573
+];
+
+/** Removes non-order identifier tokens (RMA/invoice/warehouse-move) from text. */
+export function stripNonOrderIdentifiers(text: string): string {
+  return NON_ORDER_ID_RE.reduce((s, re) => s.replace(re, " "), text);
+}
+
 const ORDER_TRACKING_SEARCH = `query($q: String!) {
   orders(first: 10, query: $q) {
     edges { node { name fulfillments { trackingInfo { number } } } }
