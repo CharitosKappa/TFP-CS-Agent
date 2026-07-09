@@ -29,9 +29,17 @@ function formatRma(r: RmaSummary): string {
     `Επιστροφή/RMA ${r.name}${r.createdAt ? ` (${fmtDate(r.createdAt)})` : ""}`,
     `- Κατάσταση RMA (επιστροφή ΠΡΟΪΟΝΤΩΝ): ${r.state}`,
     r.orderName ? `- Παραγγελία: ${r.orderName}` : "",
-    r.refundMethod
-      ? `- Τρόπος επιστροφής ΧΡΗΜΑΤΩΝ: ${r.refundMethod}${r.refundAmount ? ` (${r.refundAmount})` : ""}`
-      : "",
+    r.refundMethod ? `- Τρόπος επιστροφής ΧΡΗΜΑΤΩΝ: ${r.refundMethod}` : "",
+    // Money breakdown. When a return-shipping (service) cost applies, the customer
+    // gets back the GROSS refund MINUS that cost — show the arithmetic so the agent
+    // can explain "why is my refund lower than what I paid?" from data, not guesswork.
+    r.serviceCost > 0
+      ? `- Ανάλυση ποσού επιστροφής: μεικτό ${r.refundAmount}€ − κόστος επιστροφής ${r.serviceCost}€ = ${r.refundPaidAmount ?? (r.refundAmount - r.serviceCost)}€ (ΚΑΘΑΡΟ ποσό που επιστρέφεται/επιστράφηκε στον πελάτη)`
+      : r.refundPaidAmount
+        ? `- Ποσό επιστροφής χρημάτων: ${r.refundPaidAmount}€ (χωρίς κόστος επιστροφής)`
+        : r.refundAmount
+          ? `- Ποσό επιστροφής χρημάτων: ${r.refundAmount}€`
+          : "",
     r.refundPaymentStatus
       ? `- Κατάσταση επιστροφής ΧΡΗΜΑΤΩΝ: ${r.refundPaymentStatus} (ΔΙΑΦΟΡΕΤΙΚΟ από την κατάσταση RMA — μόνο «Paid» σημαίνει ότι έχουν σταλεί τα χρήματα)`
       : "",
