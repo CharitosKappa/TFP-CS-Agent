@@ -6,6 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
+import { getSizeAvailabilityBySku } from "../odoo/stock";
 import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, type ShopifyProductSummary } from "./products";
 
 // How many of a customer's most recent orders to expand in full (items, courier,
@@ -147,6 +148,15 @@ async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promi
   const askedEntry = candidates.length ? p.sizes.find((s) => candidates.includes(s.size)) : undefined;
   if (askedEntry && !askedEntry.available) {
     const size = askedEntry.size; // normalized EU catalog size, e.g. "37"
+    // Odoo restock signal for THIS size (best-effort): sold out on Shopify/LGK but
+    // physically present in an incoming TFP location → "expected back shortly".
+    let restockNote = "";
+    if (p.colorSku) {
+      const inSize = (await getSizeAvailabilityBySku(p.colorSku).catch(() => [])).find((a) => a.size === size);
+      if (inSize && inSize.incoming > 0) {
+        restockNote = `\n- ΑΝΑΜΕΝΕΤΑΙ ΣΥΝΤΟΜΑ ξανά διαθέσιμο στο μέγεθος ${size} (υπάρχει απόθεμα καθ' οδόν προς την αποθήκη πώλησης). Πες το ως προσδοκία, ΧΩΡΙΣ ημερομηνία/εγγύηση.`;
+      }
+    }
     const alts: string[] = [];
     if (p.master) {
       const siblings = (await colourSiblingsWithSize(p.master, size).catch(() => []))
@@ -167,7 +177,7 @@ async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promi
         ? `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα «${p.categoryName ?? "προϊόντα"}» στο μέγεθος ${size}: ${sizeFilterUrl(p.categoryCollectionHandle, size)}`
         : `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα προϊόντα στο μέγεθος ${size}: ${catalogSizeFilterUrl(size)}`,
     );
-    block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${size} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν. Πρότεινε:\n${alts.join("\n")}`;
+    block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${size} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν.${restockNote}\n  Πρότεινε επίσης εναλλακτικές:\n${alts.join("\n")}`;
   }
   return block;
 }
