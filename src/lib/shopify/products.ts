@@ -8,14 +8,26 @@ const STOREFRONT = "https://www.thefashionproject.gr/en-eu";
 /** Storefront root (default/Greek locale) — its search matches localized titles. */
 const STOREFRONT_ROOT = "https://www.thefashionproject.gr";
 
+/** UK (English UK) storefront locale. */
+const STOREFRONT_GB = "https://www.thefashionproject.gr/en-gb";
+
 /**
  * The storefront base to build customer-facing links on, per the customer's
- * MARKET (from their Shopify shipping/address country): GR customers get the main
- * domain (Greek default locale); everyone else gets the /en-eu (English EU) locale.
- * (UK/CY could get their own locale later — default them to /en-eu for now.)
+ * MARKET (from their Shopify shipping/address country):
+ *   GR, CY → main domain (Greek default locale)
+ *   GB (UK) → /en-gb
+ *   everyone else (rest of EU) → /en-eu
  */
 export function storefrontBase(country?: string | null): string {
-  return (country ?? "").toUpperCase() === "GR" ? STOREFRONT_ROOT : STOREFRONT;
+  switch ((country ?? "").toUpperCase()) {
+    case "GR":
+    case "CY":
+      return STOREFRONT_ROOT;
+    case "GB":
+      return STOREFRONT_GB;
+    default:
+      return STOREFRONT;
+  }
 }
 
 /** Option name that carries the shoe size, across possible localisations. */
