@@ -211,6 +211,11 @@ export function sizeFilterUrl(collectionHandle: string, size: string): string {
   return `${STOREFRONT}/collections/${collectionHandle}?filter.v.option.shoe+size=${encodeURIComponent(size)}&filter.v.availability=1`;
 }
 
+/** Public storefront URL for a product handle (e.g. a colour-sibling suggestion). */
+export function productUrl(handle: string): string {
+  return `${STOREFRONT}/products/${handle}`;
+}
+
 /**
  * Link to the FULL catalog (Shopify's built-in `all` collection) filtered to
  * in-stock items in `size`. The fallback when we can't pin down a category.

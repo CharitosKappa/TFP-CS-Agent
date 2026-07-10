@@ -6,7 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
-import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, searchProductHandlesByName, sizeFilterUrl, type ShopifyProductSummary } from "./products";
+import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, type ShopifyProductSummary } from "./products";
 
 // How many of a customer's most recent orders to expand in full (items, courier,
 // tracking, estimate) when the message cites no order number — enough to cover a
@@ -120,20 +120,54 @@ function formatProduct(p: ShopifyProductSummary): string {
  * on this product, appends the two fallbacks — another colour of the same model
  * that has the size, and a category link filtered to available items in it.
  */
+// UK→EU shoe-size map — the storefront's UK selector values against our EU
+// catalog sizes. Lets a size expressed in UK terms ("size 4", "UK 5.5") resolve
+// to the EU size we actually stock. (EU and UK ranges don't overlap, so mapping
+// UK tokens never collides with a real EU size.)
+const UK_TO_EU: Record<string, string> = {
+  "3.5": "36", "4": "37", "5": "38", "5.5": "39", "6.5": "40", "7.5": "41",
+};
+
+/** EU catalog sizes a raw asked-size string could mean (handles "4/37", "UK 4", "37"). */
+function euSizeCandidates(asked: string): string[] {
+  const out = new Set<string>();
+  for (const t of asked.match(/\d+(?:\.\d+)?/g) ?? []) {
+    out.add(t); // may already be an EU size
+    if (UK_TO_EU[t]) out.add(UK_TO_EU[t]); // …or a UK size → its EU equivalent
+  }
+  return [...out];
+}
+
 async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promise<string> {
   let block = formatProduct(p);
-  const askedEntry = askedSize ? p.sizes.find((s) => s.size === askedSize) : undefined;
-  if (askedSize && askedEntry && !askedEntry.available) {
+  // Match the asked size against the catalog's EU sizes, accepting dual/regional
+  // forms ("4/37") and bare UK sizes ("4" → EU 37) — a strict equality check
+  // would miss a sold-out size and never surface its colour-sibling alternative.
+  const candidates = askedSize ? euSizeCandidates(askedSize) : [];
+  const askedEntry = candidates.length ? p.sizes.find((s) => candidates.includes(s.size)) : undefined;
+  if (askedEntry && !askedEntry.available) {
+    const size = askedEntry.size; // normalized EU catalog size, e.g. "37"
     const alts: string[] = [];
     if (p.master) {
-      const siblings = (await colourSiblingsWithSize(p.master, askedSize).catch(() => []))
+      const siblings = (await colourSiblingsWithSize(p.master, size).catch(() => []))
         .filter((s) => s.handle !== p.handle);
-      if (siblings.length) alts.push(`- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${askedSize} διαθέσιμο: ${siblings.map((s) => s.title).join(", ")}`);
+      // Each sibling WITH its product link — the customer should be able to click
+      // straight through to the alternative colour in their size.
+      if (siblings.length) {
+        alts.push(
+          `- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${size} διαθέσιμο (δώσε τους συνδέσμους):\n` +
+            siblings.map((s) => `  • ${s.title}: ${productUrl(s.handle)}`).join("\n"),
+        );
+      }
     }
-    if (p.categoryCollectionHandle) {
-      alts.push(`- Σύνδεσμος διαθέσιμων «${p.categoryName ?? "προϊόντων"}» στο μέγεθος ${askedSize}: ${sizeFilterUrl(p.categoryCollectionHandle, askedSize)}`);
-    }
-    if (alts.length) block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${askedSize} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν. Πρότεινε:\n${alts.join("\n")}`;
+    // ALWAYS end with a general "what's available in your size" link — category-
+    // filtered when we can pin the category, else the whole catalog in that size.
+    alts.push(
+      p.categoryCollectionHandle
+        ? `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα «${p.categoryName ?? "προϊόντα"}» στο μέγεθος ${size}: ${sizeFilterUrl(p.categoryCollectionHandle, size)}`
+        : `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα προϊόντα στο μέγεθος ${size}: ${catalogSizeFilterUrl(size)}`,
+    );
+    block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${size} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν. Πρότεινε:\n${alts.join("\n")}`;
   }
   return block;
 }
