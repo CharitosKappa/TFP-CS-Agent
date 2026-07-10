@@ -53,6 +53,23 @@ function untrusted(tag: string, body: string): string {
   return `<${tag}>\n${defanged}\n</${tag}>`;
 }
 
+// Customers on webmail (esp. Gmail) often "attach" photos as external SHARE
+// LINKS (Google Drive/Photos, Dropbox, WeTransfer, iCloud, OneDrive) or paste a
+// direct image URL — these arrive as links in the body, NOT as real attachments,
+// so hasAttachments is false and there's nothing for our vision path. Detect them
+// so the reply acknowledges the photos WERE provided (a human opens the links)
+// instead of wrongly asking the customer to resend.
+const SHARED_FILE_LINK_RE =
+  /https?:\/\/(?:drive\.google\.com|photos\.app\.goo\.gl|photos\.google\.com|(?:www\.)?dropbox\.com|wetransfer\.com|we\.tl|1drv\.ms|onedrive\.live\.com|(?:www\.)?icloud\.com)\/[^\s)\]]+/gi;
+const DIRECT_IMAGE_LINK_RE =
+  /https?:\/\/(?!(?:www\.)?thefashionproject\.gr)[^\s)\]]+\.(?:jpe?g|png|heic|heif|webp)(?:\?[^\s)\]]*)?/gi;
+
+/** Distinct external photo/file-share links found in the customer's message text. */
+function extractSharedPhotoLinks(text: string): string[] {
+  const hits = [...(text.match(SHARED_FILE_LINK_RE) ?? []), ...(text.match(DIRECT_IMAGE_LINK_RE) ?? [])];
+  return [...new Set(hits)];
+}
+
 /**
  * The volatile part of the prompt: rolling case summary + recent verbatim
  * messages + the new inbound message + any fresh Shopify data.
@@ -71,7 +88,19 @@ export function buildMessages(ctx: PromptContext): Anthropic.MessageParam[] {
     ctx.odooContext && `# Δεδομένα Odoo (επιστροφές/RMA)\n${ctx.odooContext}`,
     history && `# Πρόσφατα μηνύματα\n${untrusted("thread_history", history)}`,
     `# Νέο μήνυμα πελάτη (προς απάντηση)\n${untrusted("customer_message", ctx.incomingMessage)}`,
-    ctx.attachmentSummary && `# Συνημμένα πελάτη\n${untrusted("attachments", ctx.attachmentSummary)}`,
+    // ALWAYS state what we actually received — otherwise a customer's claim ("I've
+    // attached photos") makes the model thank them for / act on files we never got.
+    // Ground attachment statements in THIS, not the message text. Four cases:
+    // real files (vision) · summarised files · external photo LINKS · nothing.
+    (() => {
+      if (ctx.attachmentSummary) return `# Συνημμένα πελάτη (ΛΑΒΑΜΕ)\n${untrusted("attachments", ctx.attachmentSummary)}`;
+      if (ctx.images?.length) return `# Συνημμένα πελάτη: λάβαμε ${ctx.images.length} εικόνα/ες (βλ. συνημμένες εικόνες).`;
+      const links = extractSharedPhotoLinks(ctx.incomingMessage);
+      if (links.length) {
+        return `# Συνημμένα πελάτη: ο πελάτης ΔΕΝ επισύναψε αρχεία, αλλά παρέθεσε ${links.length} ΕΞΩΤΕΡΙΚΟ(ΥΣ) ΣΥΝΔΕΣΜΟ(ΥΣ) προς αρχεία (π.χ. Google Drive) μέσα στο μήνυμα — πιθανότατα τα αρχεία/φωτογραφίες που αναφέρει. ΠΡΟΣΟΧΗ: ΔΕΝ γνωρίζουμε με βεβαιότητα τον τύπο ή το περιεχόμενό τους (ένας σύνδεσμος μπορεί να είναι φωτογραφία, PDF, ό,τιδήποτε) και ΔΕΝ μπορούμε να τους ανοίξουμε/δούμε αυτόματα· θα τους ελέγξει συνεργάτης. Επομένως: αναγνώρισε ότι ΛΑΒΑΜΕ τους συνδέσμους/τα αρχεία που έστειλε και ότι θα εξεταστούν, ΜΗΝ ζητήσεις να τα ξαναστείλει, ΜΗΝ πεις ότι δεν λάβαμε τίποτα, και ΜΗΝ περιγράφεις ή υποθέτεις το περιεχόμενό τους.`;
+      }
+      return `# Συνημμένα πελάτη: ΔΕΝ λάβαμε ΚΑΝΕΝΑ συνημμένο σε αυτό το μήνυμα. Αν ο πελάτης ισχυρίζεται ότι επισύναψε κάτι (π.χ. φωτογραφίες), ΜΗΝ τον ευχαριστείς για συνημμένα και ΜΗΝ πεις ότι τα λάβαμε — ενημέρωσέ τον ευγενικά ότι δεν έφτασε κανένα συνημμένο και ζήτησέ του να το (ξανα)στείλει.`;
+    })(),
     ctx.reviewerGuidance &&
       `# Οδηγία ελεγκτή (το προηγούμενο draft απορρίφθηκε — διόρθωσέ το)\n${ctx.reviewerGuidance}`,
     ctx.resolutionContext &&

@@ -140,24 +140,31 @@ interface RawAttachment {
   isInline?: boolean;
   contentId?: string | null;
   contentBytes?: string | null;
+  /** Present on referenceAttachment (a OneDrive/SharePoint "cloud" attachment). */
+  sourceUrl?: string | null;
+}
+
+/** A cloud/reference attachment (OneDrive/SharePoint link) — no bytes to fetch. */
+export interface ReferenceAttachment {
+  name: string;
+  sourceUrl: string | null;
 }
 
 /**
- * Fetches a message's file attachments on-demand (not stored — see PRIVACY.md).
- * Returns only genuine fileAttachments the customer attached (which carry
- * contentBytes). Item/reference attachments are skipped, and so is inline CRUFT
- * (small cid: images — signature logos, tracking pixels). Large inline images
- * are KEPT: many mail clients embed a real customer photo inline. See
- * isInlineCruft.
+ * Fetches a message's attachments on-demand (not stored — see PRIVACY.md). Splits
+ * them into: `files` — genuine fileAttachments with bytes (inline CRUFT like small
+ * signature logos/tracking pixels dropped, large inline photos KEPT); and
+ * `references` — cloud/reference attachments (OneDrive/SharePoint links) which
+ * carry no bytes, so a human opens them. Item attachments (.eml) are ignored.
  */
 export async function getMessageAttachments(
   graphMessageId: string,
-): Promise<GraphAttachment[]> {
+): Promise<{ files: GraphAttachment[]; references: ReferenceAttachment[] }> {
   const res = await graphFetch(
     `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}/attachments`,
   );
   const data = (await res.json()) as GraphListResponse<RawAttachment>;
-  return data.value
+  const files = data.value
     .filter((a) => (a["@odata.type"] ?? "").includes("fileAttachment"))
     .filter((a) => !isInlineCruft({ isInline: !!a.isInline, size: a.size ?? 0 }))
     .map((a) => ({
@@ -169,6 +176,10 @@ export async function getMessageAttachments(
       contentId: a.contentId ?? null,
       contentBytes: a.contentBytes ?? null,
     }));
+  const references = data.value
+    .filter((a) => (a["@odata.type"] ?? "").includes("referenceAttachment"))
+    .map((a) => ({ name: a.name ?? "file", sourceUrl: a.sourceUrl ?? null }));
+  return { files, references };
 }
 
 export interface SentReply {

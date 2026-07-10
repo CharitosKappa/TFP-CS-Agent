@@ -158,7 +158,7 @@ async function main() {
         continue;
       }
 
-      const media = await fetchInboundMedia(msg.id);
+      const media = await fetchInboundMedia(msg.id, msg.body?.content ?? undefined);
       // Thread-aware: pull prior messages of THIS conversation from Graph so the
       // draft is never blind to the history (no DB needed).
       const recentMessages = await recentMessagesFromThread(
