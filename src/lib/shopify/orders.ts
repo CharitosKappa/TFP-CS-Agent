@@ -18,6 +18,8 @@ export interface ShopifyOrderSummary {
   /** productHandle lets a size/fit question resolve the product straight from the order. */
   lineItems: { title: string; quantity: number; variantTitle?: string | null; productHandle?: string | null; sku?: string | null }[];
   shippingCity?: string | null;
+  /** ISO country code of the shipping address (e.g. "GR", "DE") — drives market/locale. */
+  shippingCountry?: string | null;
   /**
    * Shopify's fulfillment/delivery estimates (ISO datetimes) for an unfulfilled
    * order: when it must be handed to the carrier and the expected delivery
@@ -41,7 +43,7 @@ interface OrderNode {
   transactions: { gateway: string | null; kind: string; status: string }[];
   fulfillments: { trackingInfo: { number?: string; company?: string; url?: string }[] }[];
   lineItems: { edges: { node: { title: string; quantity: number; variantTitle?: string | null; sku?: string | null; product?: { handle: string } | null } }[] };
-  shippingAddress?: { city?: string | null } | null;
+  shippingAddress?: { city?: string | null; countryCodeV2?: string | null } | null;
 }
 
 const ORDER_QUERY = `query($q: String!) {
@@ -53,7 +55,7 @@ const ORDER_QUERY = `query($q: String!) {
       transactions(first: 50) { gateway kind status }
       fulfillments { trackingInfo { number company url } }
       lineItems(first: 25) { edges { node { title quantity variantTitle sku product { handle } } } }
-      shippingAddress { city }
+      shippingAddress { city countryCodeV2 }
     } }
   }
 }`;
@@ -231,6 +233,7 @@ export async function getOrderByName(
       sku: e.node.sku ?? null,
     })),
     shippingCity: node.shippingAddress?.city ?? null,
+    shippingCountry: node.shippingAddress?.countryCodeV2 ?? null,
     deliveryEstimate,
   };
 }

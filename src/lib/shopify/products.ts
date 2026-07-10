@@ -8,6 +8,16 @@ const STOREFRONT = "https://www.thefashionproject.gr/en-eu";
 /** Storefront root (default/Greek locale) — its search matches localized titles. */
 const STOREFRONT_ROOT = "https://www.thefashionproject.gr";
 
+/**
+ * The storefront base to build customer-facing links on, per the customer's
+ * MARKET (from their Shopify shipping/address country): GR customers get the main
+ * domain (Greek default locale); everyone else gets the /en-eu (English EU) locale.
+ * (UK/CY could get their own locale later — default them to /en-eu for now.)
+ */
+export function storefrontBase(country?: string | null): string {
+  return (country ?? "").toUpperCase() === "GR" ? STOREFRONT_ROOT : STOREFRONT;
+}
+
 /** Option name that carries the shoe size, across possible localisations. */
 const SIZE_OPTION_RE = /size|μέγεθ|νούμερ/i;
 
@@ -177,7 +187,7 @@ export async function searchProductHandlesByName(name: string, limit = 2): Promi
 
 const VARIANTS_BY_SKU = `query($q: String!) {
   productVariants(first: 100, query: $q) {
-    edges { node { availableForSale selectedOptions { name value } product { title handle status } } }
+    edges { node { sku availableForSale selectedOptions { name value } product { title handle status } } }
   }
 }`;
 
@@ -189,39 +199,45 @@ const VARIANTS_BY_SKU = `query($q: String!) {
 export async function colourSiblingsWithSize(
   master: string,
   size: string,
-): Promise<{ title: string; handle: string }[]> {
+): Promise<{ title: string; handle: string; colorSku: string | null }[]> {
   if (!/^\d{5}$/.test(master)) return [];
   const data = await shopifyGraphQL<{
     productVariants: { edges: { node: {
+      sku: string | null;
       availableForSale: boolean;
       selectedOptions: { name: string; value: string }[];
       product: { title: string; handle: string; status: string };
     } }[] };
   }>(VARIANTS_BY_SKU, { q: `sku:${master}*` });
-  const out = new Map<string, string>(); // handle -> title (deduped per product)
+  // Dedupe per product; carry the colour SKU (variant SKU's first 8 digits =
+  // master + colour) so the suggestion can be cited with its code.
+  const out = new Map<string, { title: string; colorSku: string | null }>();
   for (const { node } of data.productVariants.edges) {
     if (node.product.status !== "ACTIVE") continue;
-    if (sizeOf(node) === size && node.availableForSale) out.set(node.product.handle, node.product.title);
+    if (sizeOf(node) === size && node.availableForSale) {
+      const colorSku = node.sku && /^\d{8}/.test(node.sku) ? node.sku.slice(0, 8) : null;
+      out.set(node.product.handle, { title: node.product.title, colorSku });
+    }
   }
-  return [...out].map(([handle, title]) => ({ handle, title }));
+  return [...out].map(([handle, v]) => ({ handle, title: v.title, colorSku: v.colorSku }));
 }
 
 /** Storefront link to a category collection filtered to in-stock items in `size`. */
-export function sizeFilterUrl(collectionHandle: string, size: string): string {
-  return `${STOREFRONT}/collections/${collectionHandle}?filter.v.option.shoe+size=${encodeURIComponent(size)}&filter.v.availability=1`;
+export function sizeFilterUrl(collectionHandle: string, size: string, base: string = STOREFRONT): string {
+  return `${base}/collections/${collectionHandle}?filter.v.option.shoe+size=${encodeURIComponent(size)}&filter.v.availability=1`;
 }
 
 /** Public storefront URL for a product handle (e.g. a colour-sibling suggestion). */
-export function productUrl(handle: string): string {
-  return `${STOREFRONT}/products/${handle}`;
+export function productUrl(handle: string, base: string = STOREFRONT): string {
+  return `${base}/products/${handle}`;
 }
 
 /**
  * Link to the FULL catalog (Shopify's built-in `all` collection) filtered to
  * in-stock items in `size`. The fallback when we can't pin down a category.
  */
-export function catalogSizeFilterUrl(size: string): string {
-  return sizeFilterUrl("all", size);
+export function catalogSizeFilterUrl(size: string, base: string = STOREFRONT): string {
+  return sizeFilterUrl("all", size, base);
 }
 
 const CATEGORY_SEARCH = `query($q: String!) {

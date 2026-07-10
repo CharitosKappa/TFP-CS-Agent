@@ -7,7 +7,7 @@ import {
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 import { getSizeAvailabilityBySku } from "../odoo/stock";
-import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, type ShopifyProductSummary } from "./products";
+import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, storefrontBase, type ShopifyProductSummary } from "./products";
 
 // How many of a customer's most recent orders to expand in full (items, courier,
 // tracking, estimate) when the message cites no order number — enough to cover a
@@ -139,7 +139,7 @@ function euSizeCandidates(asked: string): string[] {
   return [...out];
 }
 
-async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promise<string> {
+async function productBlock(p: ShopifyProductSummary, askedSize: string | undefined, base: string): Promise<string> {
   let block = formatProduct(p);
   // Match the asked size against the catalog's EU sizes, accepting dual/regional
   // forms ("4/37") and bare UK sizes ("4" → EU 37) — a strict equality check
@@ -165,8 +165,8 @@ async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promi
       // straight through to the alternative colour in their size.
       if (siblings.length) {
         alts.push(
-          `- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${size} διαθέσιμο (δώσε τους συνδέσμους):\n` +
-            siblings.map((s) => `  • ${s.title}: ${productUrl(s.handle)}`).join("\n"),
+          `- Ίδιο μοντέλο σε ΑΛΛΟ χρώμα με μέγεθος ${size} διαθέσιμο (δώσε τους συνδέσμους ΚΑΙ τον SKU):\n` +
+            siblings.map((s) => `  • ${s.title}${s.colorSku ? ` (SKU: ${s.colorSku})` : ""}: ${productUrl(s.handle, base)}`).join("\n"),
         );
       }
     }
@@ -174,8 +174,8 @@ async function productBlock(p: ShopifyProductSummary, askedSize?: string): Promi
     // filtered when we can pin the category, else the whole catalog in that size.
     alts.push(
       p.categoryCollectionHandle
-        ? `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα «${p.categoryName ?? "προϊόντα"}» στο μέγεθος ${size}: ${sizeFilterUrl(p.categoryCollectionHandle, size)}`
-        : `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα προϊόντα στο μέγεθος ${size}: ${catalogSizeFilterUrl(size)}`,
+        ? `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα «${p.categoryName ?? "προϊόντα"}» στο μέγεθος ${size}: ${sizeFilterUrl(p.categoryCollectionHandle, size, base)}`
+        : `- Και γενικός σύνδεσμος με όλα τα διαθέσιμα προϊόντα στο μέγεθος ${size}: ${catalogSizeFilterUrl(size, base)}`,
     );
     block += `\n- ΤΟ ΜΕΓΕΘΟΣ ${size} ΕΙΝΑΙ ΕΞΑΝΤΛΗΜΕΝΟ σε αυτό το προϊόν.${restockNote}\n  Πρότεινε επίσης εναλλακτικές:\n${alts.join("\n")}`;
   }
@@ -221,10 +221,12 @@ export async function gatherShopifyContext(input: {
         orderAdded = true;
       }
     }
+    let customerCountry: string | null = null;
     if (input.customerEmail) {
       const customer = await getCustomerByEmail(input.customerEmail);
       if (customer) {
         parts.push(formatCustomer(customer));
+        customerCountry = customer.countryCode ?? null;
         // No order number cited? Surface the customer's recent orders in FULL —
         // not just the latest. A customer with several open orders often asks
         // about a specific one by its CONTENTS ("my other order of three shoes"),
@@ -262,6 +264,11 @@ export async function gatherShopifyContext(input: {
             `σύνδεσμο του προϊόντος και την πηγή του κωδικού, και πρότεινε έλεγχο από συνάδελφο.`,
       );
     }
+    // Storefront locale for customer-facing links, by MARKET: GR shipping country →
+    // main domain (Greek); everyone else → /en-eu. Prefer the order's shipping
+    // country, else the customer's default-address country.
+    const base = storefrontBase(surfacedOrders[0]?.shippingCountry ?? customerCountry);
+
     // Products the customer linked to (fit/size questions) — surface each product's
     // Fit Advice so the reply can advise on sizing from real data. Isolated per
     // handle so one failing lookup doesn't block the rest.
@@ -279,7 +286,7 @@ export async function gatherShopifyContext(input: {
         if (!p) continue;
         resolvedProduct = true;
         shownHandles.add(p.handle);
-        parts.push(await productBlock(p, input.productSize));
+        parts.push(await productBlock(p, input.productSize, base));
       }
     }
     // The customer explicitly LINKED products — those are authoritative for what
@@ -300,7 +307,7 @@ export async function gatherShopifyContext(input: {
         shownHandles.add(p.handle);
         parts.push(
           `Πιθανό προϊόν που περιγράφει ο πελάτης (ταυτοποιήθηκε με αναζήτηση του ονόματος στο eshop). ` +
-            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize)}`,
+            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base)}`,
         );
       }
     }
@@ -327,7 +334,7 @@ export async function gatherShopifyContext(input: {
         shownHandles.add(p.handle);
         parts.push(
           `Προϊόν από τα ΕΙΔΗ ΤΗΣ ΠΑΡΑΓΓΕΛΙΑΣ του πελάτη (δεν έδωσε link — ταυτοποιήθηκε από την παραγγελία του). ` +
-            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize)}`,
+            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base)}`,
         );
       }
     }
@@ -341,8 +348,8 @@ export async function gatherShopifyContext(input: {
         ? await inferCategoryCollection(input.productName).catch(() => null)
         : null;
       const link = cat
-        ? `- Σύνδεσμος διαθέσιμων «${cat.categoryName}» στο νούμερο ${size}: ${sizeFilterUrl(cat.collectionHandle, size)}`
-        : `- Σύνδεσμος διαθέσιμων προϊόντων στο νούμερο ${size} (γενικός κατάλογος): ${catalogSizeFilterUrl(size)}`;
+        ? `- Σύνδεσμος διαθέσιμων «${cat.categoryName}» στο νούμερο ${size}: ${sizeFilterUrl(cat.collectionHandle, size, base)}`
+        : `- Σύνδεσμος διαθέσιμων προϊόντων στο νούμερο ${size} (γενικός κατάλογος): ${catalogSizeFilterUrl(size, base)}`;
       parts.push(
         `ΤΟ ΣΥΓΚΕΚΡΙΜΕΝΟ ΠΡΟΪΟΝ ΔΕΝ ΤΑΥΤΟΠΟΙΗΘΗΚΕ (δόθηκε μόνο όνομα, χωρίς σύνδεσμο). ` +
           `Ζήτησε ευγενικά τον σύνδεσμο ή το SKU, ΚΑΙ δώσε τον παρακάτω σύνδεσμο με τα διαθέσιμα στο νούμερο ${size}:\n${link}`,
