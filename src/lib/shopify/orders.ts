@@ -16,8 +16,10 @@ export interface ShopifyOrderSummary {
   shippingMethod?: string | null;
   trackings: { number?: string | null; company?: string | null; url?: string | null }[];
   /** productHandle lets a size/fit question resolve the product straight from the order. */
-  lineItems: { title: string; quantity: number; variantTitle?: string | null; productHandle?: string | null }[];
+  lineItems: { title: string; quantity: number; variantTitle?: string | null; productHandle?: string | null; sku?: string | null }[];
   shippingCity?: string | null;
+  /** ISO country code of the shipping address (e.g. "GR", "DE") — drives market/locale. */
+  shippingCountry?: string | null;
   /**
    * Shopify's fulfillment/delivery estimates (ISO datetimes) for an unfulfilled
    * order: when it must be handed to the carrier and the expected delivery
@@ -40,8 +42,8 @@ interface OrderNode {
   shippingLine?: { title: string | null } | null;
   transactions: { gateway: string | null; kind: string; status: string }[];
   fulfillments: { trackingInfo: { number?: string; company?: string; url?: string }[] }[];
-  lineItems: { edges: { node: { title: string; quantity: number; variantTitle?: string | null; product?: { handle: string } | null } }[] };
-  shippingAddress?: { city?: string | null } | null;
+  lineItems: { edges: { node: { title: string; quantity: number; variantTitle?: string | null; sku?: string | null; product?: { handle: string } | null } }[] };
+  shippingAddress?: { city?: string | null; countryCodeV2?: string | null } | null;
 }
 
 const ORDER_QUERY = `query($q: String!) {
@@ -52,8 +54,8 @@ const ORDER_QUERY = `query($q: String!) {
       shippingLine { title }
       transactions(first: 50) { gateway kind status }
       fulfillments { trackingInfo { number company url } }
-      lineItems(first: 25) { edges { node { title quantity variantTitle product { handle } } } }
-      shippingAddress { city }
+      lineItems(first: 25) { edges { node { title quantity variantTitle sku product { handle } } } }
+      shippingAddress { city countryCodeV2 }
     } }
   }
 }`;
@@ -151,6 +153,21 @@ export function extractOrderNumber(text: string): string | undefined {
   return m?.[1];
 }
 
+// Identifiers customers routinely paste that are NOT the order number: RMA refs,
+// Greek accounting-document series (ΑΛΠ/ΤΔΑ/ΤΠΥ/… receipts & invoices), and Odoo
+// warehouse-move names (LGK/OUT/…). Their embedded digits must not be mistaken
+// for an order number (e.g. "ΑΛΠ/2026/-16839" → a bogus order "16839").
+const NON_ORDER_ID_RE: RegExp[] = [
+  /RMA[\s#:-]*\d+/giu,
+  /[Α-Ω]{2,4}\/\d{2,4}\/-?\d+/gu, // ΑΛΠ/2026/-16839
+  /[A-Z]{2,4}\/(?:OUT|IN|INT)\/\d+/gu, // LGK/OUT/49573
+];
+
+/** Removes non-order identifier tokens (RMA/invoice/warehouse-move) from text. */
+export function stripNonOrderIdentifiers(text: string): string {
+  return NON_ORDER_ID_RE.reduce((s, re) => s.replace(re, " "), text);
+}
+
 const ORDER_TRACKING_SEARCH = `query($q: String!) {
   orders(first: 10, query: $q) {
     edges { node { name fulfillments { trackingInfo { number } } } }
@@ -213,8 +230,10 @@ export async function getOrderByName(
       quantity: e.node.quantity,
       variantTitle: e.node.variantTitle ?? null,
       productHandle: e.node.product?.handle ?? null,
+      sku: e.node.sku ?? null,
     })),
     shippingCity: node.shippingAddress?.city ?? null,
+    shippingCountry: node.shippingAddress?.countryCodeV2 ?? null,
     deliveryEstimate,
   };
 }

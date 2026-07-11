@@ -67,7 +67,24 @@ export interface RmaSummary {
   orderName: string | null;
   customer: string | null;
   refundMethod: string | null;
+  /**
+   * GROSS refund (Odoo `refund_amount`) — the credited value of the returned
+   * item, BEFORE the return-shipping deduction. NOT what the customer actually
+   * gets back when a return cost applies (see refundPaidAmount).
+   */
   refundAmount: number;
+  /**
+   * Return-shipping cost deducted from the refund (from the RMA's service-cost
+   * move `amount_total`). 0 when the return is free (e.g. store credit / our error).
+   */
+  serviceCost: number;
+  /**
+   * NET amount actually refunded to the customer (Odoo `refund_payment_amount`):
+   * refundAmount − serviceCost. null when no refund payment has been made yet.
+   * This is the figure the customer sees — use it, not refundAmount, when
+   * telling them how much was returned.
+   */
+  refundPaidAmount: number | null;
   /**
    * Status of the MONEY refund itself (distinct from `state`, which is the
    * PRODUCT return). null when there's no refund move yet. Only "Paid" means the
@@ -102,6 +119,8 @@ export interface RmaRecord {
   partner_id: Many2One;
   refund_method: string | false;
   refund_amount: number;
+  refund_payment_amount: number;
+  service_cost_move_id: Many2One;
   reverse_move_payment_state: string | false;
   dhl_locator_url: string | false;
   create_date: string | false;
@@ -110,7 +129,8 @@ export interface RmaRecord {
 
 const RMA_FIELDS = [
   "name", "state", "order_id", "partner_id", "refund_method",
-  "refund_amount", "reverse_move_payment_state", "dhl_locator_url", "create_date", "line_ids",
+  "refund_amount", "refund_payment_amount", "service_cost_move_id",
+  "reverse_move_payment_state", "dhl_locator_url", "create_date", "line_ids",
 ];
 
 const m2oName = (v: Many2One): string | null => (Array.isArray(v) ? v[1] : null);
@@ -158,10 +178,30 @@ async function fetchVoucherIds(rmaIds: number[]): Promise<Map<number, number>> {
   return byRma;
 }
 
+/**
+ * Reads the €-amount of an RMA's service-cost move (the return-shipping fee
+ * deducted from the refund), from account.move.amount_total. Best-effort: 0 when
+ * there's no such move or it can't be read (a free return has none).
+ */
+async function fetchServiceCost(moveId: Many2One): Promise<number> {
+  if (!Array.isArray(moveId)) return 0;
+  try {
+    const rows = await execKw<{ amount_total: number }[]>(
+      "account.move", "search_read",
+      [[["id", "=", moveId[0]]]],
+      { fields: ["amount_total"], limit: 1 },
+    );
+    return rows[0]?.amount_total ?? 0;
+  } catch {
+    return 0; // no read access / no move — treat as no deduction
+  }
+}
+
 function toSummary(
   r: RmaRecord,
   lines: Map<number, RmaLine>,
   voucherAttachmentId: number | null,
+  serviceCost: number,
 ): RmaSummary {
   const stateCode = r.state || "";
   return {
@@ -173,6 +213,9 @@ function toSummary(
     customer: m2oName(r.partner_id),
     refundMethod: r.refund_method ? (REFUND_METHOD[r.refund_method] ?? r.refund_method) : null,
     refundAmount: r.refund_amount ?? 0,
+    serviceCost,
+    // refund_payment_amount is the net actually paid; 0/absent → not refunded yet.
+    refundPaidAmount: r.refund_payment_amount ? r.refund_payment_amount : null,
     refundPaymentStatus: r.reverse_move_payment_state
       ? (REFUND_PAYMENT_STATE[r.reverse_move_payment_state] ?? r.reverse_move_payment_state)
       : null,
@@ -192,13 +235,14 @@ async function searchRmaRecords(domain: unknown[], limit = 10): Promise<RmaRecor
   });
 }
 
-/** Adds the lines + voucher attachment to a single record (fetched concurrently). */
+/** Adds the lines + voucher attachment + service cost to a single record (fetched concurrently). */
 export async function hydrateRma(r: RmaRecord): Promise<RmaSummary> {
-  const [lines, vouchers] = await Promise.all([
+  const [lines, vouchers, serviceCost] = await Promise.all([
     fetchLines(r.line_ids ?? []),
     fetchVoucherIds([r.id]),
+    fetchServiceCost(r.service_cost_move_id),
   ]);
-  return toSummary(r, lines, vouchers.get(r.id) ?? null);
+  return toSummary(r, lines, vouchers.get(r.id) ?? null, serviceCost);
 }
 
 /**

@@ -51,6 +51,25 @@ export function isImageAttachment(a: { contentType: string }): boolean {
   return a.contentType.toLowerCase().startsWith("image/");
 }
 
+// Base64 data-URI images embedded directly in an HTML body (`<img
+// src="data:image/…;base64,…">`) — some clients inline photos this way, so they
+// are NOT Graph attachments. The payload runs until the closing quote/bracket.
+const DATA_URI_IMAGE_RE = /data:image\/[\w.+-]+;base64,([^"')\s>]+)/gi;
+
+/**
+ * Extracts base64 payloads of images embedded as data: URIs in an HTML body.
+ * Skips tiny ones (spacer/pixel gifs). Returns the raw base64 strings; the caller
+ * sniffs/downscales them exactly like attachment bytes.
+ */
+export function extractDataUriImages(html: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(DATA_URI_IMAGE_RE)) {
+    const b64 = m[1].replace(/\s/g, "");
+    if (b64.length > 100) out.push(b64); // ~>75 bytes — skip spacer/tracking pixels
+  }
+  return out;
+}
+
 /**
  * An email "inline" (cid:) attachment this small is almost always a signature
  * logo or tracking pixel, not customer content — those we want to ignore. But

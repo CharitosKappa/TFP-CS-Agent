@@ -1,6 +1,7 @@
 import { getMessageAttachments } from "../graph/messages";
 import { downscaleImage } from "../media/downscale";
 import {
+  extractDataUriImages,
   isImageAttachment,
   sniffImageType,
   type InlineImage,
@@ -18,63 +19,75 @@ export interface InboundMedia {
   summary?: string;
 }
 
-/**
- * Best-effort: fetch the customer message's attachments. Returns the image bytes
- * the model can "see" (vision, capped) PLUS a text summary of ALL attachments —
- * so the agent never re-asks for files/photos the customer already sent.
- */
-export async function fetchInboundMedia(graphMessageId: string): Promise<InboundMedia> {
-  try {
-    const attachments = await getMessageAttachments(graphMessageId);
-    if (!attachments.length) return { images: [] };
+/** Turns a base64 image payload into a model-ready InlineImage, downscaling when needed. */
+async function toInlineImage(base64: string): Promise<InlineImage | null> {
+  // Trust the actual bytes, not any declared contentType: a mislabeled image
+  // makes Claude 400 and kills the draft. Sniff the real type from magic bytes;
+  // count only base64 data chars so the size estimate isn't inflated by whitespace.
+  const sniffed = sniffImageType(base64);
+  const b64Len = base64.replace(/[^A-Za-z0-9+/]/g, "").length;
+  const rawBytes = Math.floor((b64Len * 3) / 4);
+  if (sniffed && rawBytes <= MAX_IMAGE_BYTES) return { mediaType: sniffed, data: base64 };
+  // Too large, or a type we couldn't positively identify → downscale/re-encode.
+  return await downscaleImage(base64);
+}
 
-    const imageAtts = attachments.filter(isImageAttachment);
-    const fileAtts = attachments.filter((a) => !isImageAttachment(a));
+/**
+ * Best-effort: assemble the customer message's images for the draft model (vision,
+ * capped) PLUS a text summary of everything received — so the agent never re-asks
+ * for files/photos the customer already sent. Images come from BOTH real file
+ * attachments AND base64 images embedded in the HTML body (`bodyHtml`). Cloud/
+ * reference attachments (OneDrive links) carry no bytes, so they're noted in the
+ * summary for a human to open.
+ */
+export async function fetchInboundMedia(
+  graphMessageId: string,
+  bodyHtml?: string,
+): Promise<InboundMedia> {
+  try {
+    const { files, references } = await getMessageAttachments(graphMessageId);
+    const imageAtts = files.filter(isImageAttachment);
+    const fileAtts = files.filter((a) => !isImageAttachment(a));
+    const embedded = bodyHtml ? extractDataUriImages(bodyHtml) : [];
 
     const images: InlineImage[] = [];
     for (const a of imageAtts) {
       if (images.length >= MAX_IMAGES) break;
       if (!a.contentBytes) continue;
-      // Trust the actual bytes, not Graph's declared contentType: a mislabeled
-      // image (e.g. a PNG content type on JPEG bytes) makes Claude reject the
-      // whole request with a 400 that kills the draft. Sniff the real type from
-      // the magic bytes; anything we can't positively identify as a supported
-      // type falls through to the re-encode path below.
-      const sniffed = sniffImageType(a.contentBytes);
-      // Trust the bytes we actually hold, not Graph's reported `size` — it can
-      // be missing (defaulted to 0), which would let an oversized image through
-      // un-downscaled and trip Claude's per-image limit (a 400 that kills the draft).
-      // Count only base64 data chars (drop any newlines/whitespace/padding) so the
-      // estimate isn't inflated into a needless downscale.
-      const b64Len = a.contentBytes.replace(/[^A-Za-z0-9+/]/g, "").length;
-      const rawBytes = Math.floor((b64Len * 3) / 4);
-      if (sniffed && rawBytes <= MAX_IMAGE_BYTES) {
-        images.push({ mediaType: sniffed, data: a.contentBytes });
-      } else {
-        // Too large, or a type we couldn't positively identify → downscale/
-        // re-encode to a safe JPEG.
-        const ds = await downscaleImage(a.contentBytes);
-        if (ds) images.push(ds);
-      }
+      const img = await toInlineImage(a.contentBytes);
+      if (img) images.push(img);
+    }
+    // Then images embedded as data: URIs in the body (photos pasted inline).
+    for (const b64 of embedded) {
+      if (images.length >= MAX_IMAGES) break;
+      const img = await toInlineImage(b64);
+      if (img) images.push(img);
+    }
+
+    const totalImages = imageAtts.length + embedded.length;
+    if (totalImages === 0 && fileAtts.length === 0 && references.length === 0) {
+      return { images: [] };
     }
 
     const parts: string[] = [];
-    if (imageAtts.length) parts.push(`${imageAtts.length} εικόνα(ες)`);
+    if (totalImages) parts.push(`${totalImages} εικόνα(ες)`);
     if (fileAtts.length) parts.push(`${fileAtts.length} αρχείο(α)`);
-    const names = attachments.map((a) => a.name).join(", ");
-    // Images the customer attached but we could NOT show the model (over the
-    // count cap, missing bytes, unsupported type, or a failed downscale).
-    const hidden = imageAtts.length - images.length;
+    if (references.length) parts.push(`${references.length} συνδεδεμένο(α) αρχείο(α) cloud`);
+    const names = [...files.map((a) => a.name), ...references.map((r) => r.name)].filter(Boolean).join(", ");
+    const hidden = totalImages - images.length; // couldn't show (cap/type/downscale)
 
-    let summary = `Ο πελάτης ΕΧΕΙ ΕΠΙΣΥΝΑΨΕΙ ${parts.join(" + ")}: ${names}. Μην πεις στον πελάτη ότι δεν έλαβες αρχεία.`;
+    let summary = `Ο πελάτης ΕΧΕΙ ΣΤΕΙΛΕΙ ${parts.join(" + ")}${names ? `: ${names}` : ""}. Μην πεις στον πελάτη ότι δεν έλαβες αρχεία.`;
     if (images.length) {
       summary += ` ${images.length} από τις εικόνες εμφανίζονται παρακάτω ώστε να τις δεις — μην τις ξαναζητήσεις.`;
     }
     if (hidden > 0) {
-      summary += ` ${hidden} εικόνα(ες) εστάλησαν αλλά ΔΕΝ εμφανίζονται εδώ (π.χ. μη υποστηριζόμενος τύπος, πολύ μεγάλο αρχείο ή πάνω από το όριο εικόνων)· αν χρειάζεσαι το περιεχόμενό τους για να απαντήσεις, ζήτησε ευγενικά από τον πελάτη να τις ξαναστείλει σε μορφή JPG/PNG.`;
+      summary += ` ${hidden} εικόνα(ες) εστάλησαν αλλά ΔΕΝ εμφανίζονται εδώ (π.χ. μη υποστηριζόμενος τύπος, πολύ μεγάλο αρχείο ή πάνω από το όριο)· αν χρειάζεσαι το περιεχόμενό τους, ζήτησε ευγενικά να τις ξαναστείλει σε JPG/PNG.`;
     }
     if (fileAtts.length) {
-      summary += ` Τα μη-εικονικά αρχεία (${fileAtts.length}) δεν εμφανίζονται εδώ αλλά έχουν ληφθεί και θα τα ελέγξει ο συνεργάτης — μην τα ξαναζητήσεις.`;
+      summary += ` Τα μη-εικονικά αρχεία (${fileAtts.length}) δεν εμφανίζονται εδώ αλλά ελήφθησαν και θα τα ελέγξει ο συνεργάτης — μην τα ξαναζητήσεις.`;
+    }
+    if (references.length) {
+      summary += ` ${references.length} αρχείο(α) εστάλησαν ως ΣΥΝΔΕΣΜΟΙ cloud (OneDrive/SharePoint) — δεν τα ανοίγουμε αυτόματα, θα τα ελέγξει συνεργάτης· μην τα ξαναζητήσεις και μην υποθέτεις το περιεχόμενό τους.`;
     }
     return { images, summary };
   } catch (e) {

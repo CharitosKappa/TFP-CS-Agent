@@ -8,6 +8,8 @@ export interface ShopifyCustomerSummary {
   numberOfOrders: string;
   amountSpent: string;
   currency: string;
+  /** ISO country code from the default address (e.g. "GR") — drives market/locale. */
+  countryCode?: string | null;
   /** Store credit balances on this customer's account (usually 0 or 1 entry). */
   storeCredit: { amount: string; currency: string }[];
   recentOrders: {
@@ -22,6 +24,7 @@ interface CustomerNode {
   firstName?: string | null;
   lastName?: string | null;
   defaultEmailAddress?: { emailAddress?: string | null } | null;
+  defaultAddress?: { countryCodeV2?: string | null } | null;
   numberOfOrders: string;
   amountSpent: { amount: string; currencyCode: string };
   orders: {
@@ -40,8 +43,9 @@ const CUSTOMER_QUERY = `query($q: String!) {
   customers(first: 1, query: $q) {
     edges { node {
       firstName lastName defaultEmailAddress { emailAddress } numberOfOrders
+      defaultAddress { countryCodeV2 }
       amountSpent { amount currencyCode }
-      orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+      orders(first: 10, sortKey: CREATED_AT, reverse: true) {
         edges { node { name createdAt displayFulfillmentStatus displayFinancialStatus } }
       }
     } }
@@ -103,6 +107,7 @@ export async function getCustomerByEmail(
     numberOfOrders: node.numberOfOrders,
     amountSpent: node.amountSpent.amount,
     currency: node.amountSpent.currencyCode,
+    countryCode: node.defaultAddress?.countryCodeV2 ?? null,
     storeCredit: await getStoreCreditByEmail(e),
     recentOrders: node.orders.edges.map((o) => ({
       name: o.node.name,

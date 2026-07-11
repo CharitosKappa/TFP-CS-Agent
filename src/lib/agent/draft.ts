@@ -27,6 +27,11 @@ const SUBMIT_REPLY_TOOL: Anthropic.Tool = {
         description:
           "true αν η απάντηση ΔΕΝ επιλύει πλήρως το αίτημα τώρα αλλά υπόσχεται/υπονοεί ότι θα επανέλθουμε ΕΜΕΙΣ (π.χ. «θα το εξετάσουμε και θα επανέλθουμε», διερεύνηση με μεταφορική/3PL, αίτημα ακύρωσης/τροποποίησης που δεν επιβεβαιώνεται άμεσα). false αν η απάντηση είναι αυτοτελής και πλέον περιμένουμε τον πελάτη (ή δεν χρειάζεται τίποτα άλλο από εμάς).",
       },
+      needs_human_answer: {
+        type: "boolean",
+        description:
+          "true ΜΟΝΟ όταν ο πελάτης κάνει μια ΣΥΓΚΕΚΡΙΜΕΝΗ ερώτηση (συνήθως για προϊόν/τεχνικό χαρακτηριστικό — π.χ. αν λυγίζει η σόλα, πόσο ψηλό είναι το τακούνι, υφή/υλικό) την οποία ΔΕΝ μπορείς να απαντήσεις από τα δεδομένα/τη γνώση που σου δόθηκαν, οπότε η απάντησή σου απλώς αναβάλλει («θα το εξετάσουμε»). Τότε το θέμα χρειάζεται ΑΝΘΡΩΠΟ με γνώση προϊόντος να απαντήσει (με βάση αυτό το draft). false όταν απάντησες πλήρως το ερώτημα από τα δεδομένα/γνώση, ή όταν η αναβολή αφορά ενέργεια (π.χ. έρευνα courier, απόφαση) και όχι έλλειψη πληροφορίας.",
+      },
       follow_up_title: {
         type: "string",
         description:
@@ -45,7 +50,7 @@ const SUBMIT_REPLY_TOOL: Anthropic.Tool = {
 /** Generates the customer-facing reply draft from the bounded context. */
 export async function generateDraft(
   ctx: PromptContext,
-): Promise<{ content: string; promisesFollowUp: boolean; followUpTitle?: string; followUpDetails?: string }> {
+): Promise<{ content: string; promisesFollowUp: boolean; needsHumanAnswer: boolean; followUpTitle?: string; followUpDetails?: string }> {
   const env = getEnv();
   const res = await anthropic().messages.create({
     model: env.ANTHROPIC_MODEL,
@@ -63,12 +68,14 @@ export async function generateDraft(
     const input = toolUse.input as {
       reply?: string;
       promises_follow_up?: boolean;
+      needs_human_answer?: boolean;
       follow_up_title?: string;
       follow_up_details?: string;
     };
     return {
       content: (input.reply ?? "").trim(),
       promisesFollowUp: input.promises_follow_up === true,
+      needsHumanAnswer: input.needs_human_answer === true,
       followUpTitle: input.follow_up_title?.trim() || undefined,
       followUpDetails: input.follow_up_details?.trim() || undefined,
     };
@@ -80,5 +87,5 @@ export async function generateDraft(
     .map((b) => (b.type === "text" ? b.text : ""))
     .join("\n")
     .trim();
-  return { content, promisesFollowUp: false };
+  return { content, promisesFollowUp: false, needsHumanAnswer: false };
 }

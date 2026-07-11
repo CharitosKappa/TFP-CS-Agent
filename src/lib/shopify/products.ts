@@ -8,6 +8,28 @@ const STOREFRONT = "https://www.thefashionproject.gr/en-eu";
 /** Storefront root (default/Greek locale) — its search matches localized titles. */
 const STOREFRONT_ROOT = "https://www.thefashionproject.gr";
 
+/** UK (English UK) storefront locale. */
+const STOREFRONT_GB = "https://www.thefashionproject.gr/en-gb";
+
+/**
+ * The storefront base to build customer-facing links on, per the customer's
+ * MARKET (from their Shopify shipping/address country):
+ *   GR, CY → main domain (Greek default locale)
+ *   GB (UK) → /en-gb
+ *   everyone else (rest of EU) → /en-eu
+ */
+export function storefrontBase(country?: string | null): string {
+  switch ((country ?? "").toUpperCase()) {
+    case "GR":
+    case "CY":
+      return STOREFRONT_ROOT;
+    case "GB":
+      return STOREFRONT_GB;
+    default:
+      return STOREFRONT;
+  }
+}
+
 /** Option name that carries the shoe size, across possible localisations. */
 const SIZE_OPTION_RE = /size|μέγεθ|νούμερ/i;
 
@@ -23,6 +45,8 @@ export interface ShopifyProductSummary {
   fitAdvice?: string | null;
   /** custom.fit_and_sizing metafield — fuller fit/sizing guidance text. */
   fitAndSizing?: string | null;
+  /** custom.color_sku — the model+colour SKU (shared across sizes), e.g. "21344096". */
+  colorSku?: string | null;
   /** Per-size availability, from the product's variants. */
   sizes: { size: string; available: boolean }[];
   /**
@@ -42,6 +66,7 @@ const PRODUCT_FIELDS = `
   title handle status totalInventory
   fitAdvice: metafield(namespace: "custom", key: "fit_advice") { value }
   fitAndSizing: metafield(namespace: "custom", key: "fit_and_sizing") { value }
+  colorSku: metafield(namespace: "custom", key: "color_sku") { value }
   notify: metafield(namespace: "custom", key: "disable_notify_me_feature") { value }
   category { name }
   collections(first: 40) { edges { node { handle title } } }
@@ -60,6 +85,7 @@ interface ProductNode {
   totalInventory: number;
   fitAdvice?: { value: string } | null;
   fitAndSizing?: { value: string } | null;
+  colorSku?: { value: string } | null;
   notify?: { value: string } | null;
   category?: { name: string } | null;
   collections: { edges: { node: { handle: string; title: string } }[] };
@@ -102,6 +128,7 @@ function toSummary(n: ProductNode): ShopifyProductSummary {
     totalInventory: n.totalInventory,
     fitAdvice: parseListText(n.fitAdvice?.value),
     fitAndSizing: n.fitAndSizing?.value?.trim() || null,
+    colorSku: n.colorSku?.value?.trim() || null,
     sizes,
     master: sku ? sku.slice(0, 5) : null,
     notifyMeEnabled: (n.notify?.value ?? "true") === "false",
@@ -172,7 +199,7 @@ export async function searchProductHandlesByName(name: string, limit = 2): Promi
 
 const VARIANTS_BY_SKU = `query($q: String!) {
   productVariants(first: 100, query: $q) {
-    edges { node { availableForSale selectedOptions { name value } product { title handle status } } }
+    edges { node { sku availableForSale selectedOptions { name value } product { title handle status } } }
   }
 }`;
 
@@ -184,34 +211,45 @@ const VARIANTS_BY_SKU = `query($q: String!) {
 export async function colourSiblingsWithSize(
   master: string,
   size: string,
-): Promise<{ title: string; handle: string }[]> {
+): Promise<{ title: string; handle: string; colorSku: string | null }[]> {
   if (!/^\d{5}$/.test(master)) return [];
   const data = await shopifyGraphQL<{
     productVariants: { edges: { node: {
+      sku: string | null;
       availableForSale: boolean;
       selectedOptions: { name: string; value: string }[];
       product: { title: string; handle: string; status: string };
     } }[] };
   }>(VARIANTS_BY_SKU, { q: `sku:${master}*` });
-  const out = new Map<string, string>(); // handle -> title (deduped per product)
+  // Dedupe per product; carry the colour SKU (variant SKU's first 8 digits =
+  // master + colour) so the suggestion can be cited with its code.
+  const out = new Map<string, { title: string; colorSku: string | null }>();
   for (const { node } of data.productVariants.edges) {
     if (node.product.status !== "ACTIVE") continue;
-    if (sizeOf(node) === size && node.availableForSale) out.set(node.product.handle, node.product.title);
+    if (sizeOf(node) === size && node.availableForSale) {
+      const colorSku = node.sku && /^\d{8}/.test(node.sku) ? node.sku.slice(0, 8) : null;
+      out.set(node.product.handle, { title: node.product.title, colorSku });
+    }
   }
-  return [...out].map(([handle, title]) => ({ handle, title }));
+  return [...out].map(([handle, v]) => ({ handle, title: v.title, colorSku: v.colorSku }));
 }
 
 /** Storefront link to a category collection filtered to in-stock items in `size`. */
-export function sizeFilterUrl(collectionHandle: string, size: string): string {
-  return `${STOREFRONT}/collections/${collectionHandle}?filter.v.option.shoe+size=${encodeURIComponent(size)}&filter.v.availability=1`;
+export function sizeFilterUrl(collectionHandle: string, size: string, base: string = STOREFRONT): string {
+  return `${base}/collections/${collectionHandle}?filter.v.option.shoe+size=${encodeURIComponent(size)}&filter.v.availability=1`;
+}
+
+/** Public storefront URL for a product handle (e.g. a colour-sibling suggestion). */
+export function productUrl(handle: string, base: string = STOREFRONT): string {
+  return `${base}/products/${handle}`;
 }
 
 /**
  * Link to the FULL catalog (Shopify's built-in `all` collection) filtered to
  * in-stock items in `size`. The fallback when we can't pin down a category.
  */
-export function catalogSizeFilterUrl(size: string): string {
-  return sizeFilterUrl("all", size);
+export function catalogSizeFilterUrl(size: string, base: string = STOREFRONT): string {
+  return sizeFilterUrl("all", size, base);
 }
 
 const CATEGORY_SEARCH = `query($q: String!) {

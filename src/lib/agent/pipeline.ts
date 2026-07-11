@@ -5,8 +5,9 @@ import { detectRedLines, ESCALATION_CONFIDENCE_THRESHOLD, RED_LINE_RULES } from 
 import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
 import { extractRmaNumber } from "../odoo/rma";
+import { resolveOrderFromIdentifiers } from "../odoo/order-lookup";
 import { extractProductHandles } from "../shopify/products";
-import { extractOrderNumber, resolveOrderName } from "../shopify/orders";
+import { extractOrderNumber, resolveOrderName, stripNonOrderIdentifiers } from "../shopify/orders";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
 export interface DraftReplyInput {
@@ -18,6 +19,12 @@ export interface DraftReplyInput {
   incomingMessage: string;
   /** Email subject — often carries the order number; seen by classify + draft. */
   subject?: string;
+  /**
+   * The VERIFIED sender email. Used to resolve a non-order identifier the customer
+   * pasted (invoice/warehouse-move/tracking) to their real order — the lookup is
+   * scoped to this address so it can only ever surface the sender's own order.
+   */
+  customerEmail?: string;
   /** Image attachments from the customer's message, fed to the draft model. */
   images?: InlineImage[];
   /** Text summary of all attachments (so the agent doesn't re-ask for sent files). */
@@ -57,14 +64,15 @@ export async function draftReplyForInbound(
   const classification =
     input.classification ?? (await classifyEmail(input.incomingMessage, input.subject));
 
-  // Backstop for a known misparse: digits lifted from an RMA reference (subject
-  // "RMA5278" → orderNumber "5278"). If the number appears in what the classifier
-  // saw ONLY inside an RMA token, it's a return number, not an order — drop it
-  // before resolveOrderName "confirms" it against some unrelated old order.
+  // Backstop for a known misparse: digits lifted from a NON-order identifier the
+  // customer pasted — an RMA ref ("RMA5278" → "5278"), a receipt/invoice series
+  // ("ΑΛΠ/2026/-16839" → "16839"), or a warehouse-move name ("LGK/OUT/49573"). If
+  // the number appears in what the classifier saw ONLY inside such a token, it's
+  // not an order — drop it before resolveOrderName "confirms" a bogus/old order.
   if (classification.orderNumber) {
     const seen = `${input.subject ?? ""}\n${input.incomingMessage}`;
-    const withoutRma = seen.replace(/\bRMA[\s#:-]*\d+/gi, "");
-    if (seen.includes(classification.orderNumber) && !withoutRma.includes(classification.orderNumber)) {
+    const stripped = stripNonOrderIdentifiers(seen);
+    if (seen.includes(classification.orderNumber) && !stripped.includes(classification.orderNumber)) {
       classification.orderNumber = undefined;
     }
   }
@@ -85,6 +93,17 @@ export async function draftReplyForInbound(
   if (!classification.orderNumber) {
     const fromThread = extractOrderNumber([input.subject ?? "", ...input.recentMessages.map((m) => m.body)].join("\n"));
     if (fromThread) classification.orderNumber = fromThread;
+  }
+
+  // Still no order number? The customer likely pasted a NON-order identifier —
+  // a receipt/invoice series (ΑΛΠ/…), warehouse-move name (LGK/OUT/…) or the
+  // parcel tracking number — which is why the RMA portal rejected them. Resolve
+  // it to their real order via Odoo, scoped to the verified sender so it can only
+  // surface their own order. This lets the draft hand them the number to use.
+  if (!classification.orderNumber && input.customerEmail) {
+    const text = [input.subject ?? "", input.incomingMessage, ...input.recentMessages.map((m) => m.body)].join("\n");
+    const resolved = await resolveOrderFromIdentifiers(text, input.customerEmail).catch(() => null);
+    if (resolved) classification.orderNumber = resolved;
   }
 
   // Reconcile the number to a REAL order: customers routinely paste the tracking/
@@ -178,7 +197,16 @@ export async function draftReplyForInbound(
     reviewerGuidance: input.reviewerGuidance,
   };
 
-  const { content, promisesFollowUp, followUpTitle, followUpDetails } = await generateDraft(ctx);
+  const { content, promisesFollowUp, needsHumanAnswer, followUpTitle, followUpDetails } = await generateDraft(ctx);
+
+  // The draft couldn't answer the customer's specific (usually product/technical)
+  // question from the data — it only deferred. Escalate so a human with product
+  // knowledge answers, using this draft as the base, rather than the deferral
+  // being sent as the final word.
+  if (needsHumanAnswer) {
+    redline.escalate = true;
+    if (!redline.reasons.includes("needs_human_answer")) redline.reasons.push("needs_human_answer");
+  }
 
   const reasoning =
     `intent=${classification.intent} confidence=${classification.confidence.toFixed(2)} ` +
