@@ -218,7 +218,6 @@ export async function gatherShopifyContext(input: {
     // The customer's orders shown in this context — a size/fit question without a
     // product link resolves its product from these line items (see below).
     const surfacedOrders: ShopifyOrderSummary[] = [];
-    let orderAdded = false;
     if (input.orderNumber) {
       const order = await getOrderByName(input.orderNumber);
       // Ownership: if the order carries an email that ISN'T the verified sender,
@@ -233,7 +232,6 @@ export async function gatherShopifyContext(input: {
       if (order && !foreign) {
         parts.push(formatOrder(order));
         surfacedOrders.push(order);
-        orderAdded = true;
       }
     }
     let customerCountry: string | null = null;
@@ -242,17 +240,19 @@ export async function gatherShopifyContext(input: {
       if (customer) {
         parts.push(formatCustomer(customer));
         customerCountry = customer.countryCode ?? null;
-        // No order number cited? Surface the customer's recent orders in FULL —
-        // not just the latest. A customer with several open orders often asks
-        // about a specific one by its CONTENTS ("my other order of three shoes"),
-        // so only expanding the newest left the draft blind to it — it couldn't
-        // name the order, its courier, or its tracking. Expanding the recent few
-        // lets the reply match the right order and quote its tracking + courier.
-        if (!orderAdded && customer.recentOrders.length) {
+        // Surface the customer's recent orders in FULL (items, courier, tracking) —
+        // not just the cited one. A customer often asks about one order but a
+        // RELATED one matters too: e.g. they ask how to exchange order A while
+        // having already placed a replacement order B — the reply must see B's
+        // contents to acknowledge it instead of pushing a sold-out alternative.
+        // Skip any order already surfaced (the cited one), bounded for prompt cost.
+        const already = new Set(surfacedOrders.map((o) => o.name.replace(/^#/, "")));
+        const toExpand = customer.recentOrders
+          .filter((o) => !already.has(o.name.replace(/^#/, "")))
+          .slice(0, RECENT_ORDERS_TO_SURFACE);
+        if (toExpand.length) {
           const recent = await Promise.all(
-            customer.recentOrders
-              .slice(0, RECENT_ORDERS_TO_SURFACE)
-              .map((o) => getOrderByName(o.name).catch(() => null)),
+            toExpand.map((o) => getOrderByName(o.name).catch(() => null)),
           );
           for (const order of recent) {
             if (order) {
