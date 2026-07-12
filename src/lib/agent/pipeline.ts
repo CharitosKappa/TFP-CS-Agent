@@ -7,6 +7,7 @@ import type { OdooGatherResult } from "../odoo/context";
 import { extractRmaNumber } from "../odoo/rma";
 import { resolveOrderFromIdentifiers } from "../odoo/order-lookup";
 import { extractProductHandles } from "../shopify/products";
+import { extractCouponCodes } from "../shopify/discounts";
 import { extractOrderNumber, resolveOrderName, stripNonOrderIdentifiers } from "../shopify/orders";
 import type { Classification, DraftResult, PromptContext } from "./types";
 
@@ -17,6 +18,12 @@ export interface DraftReplyInput {
   caseSummary: string;
   recentMessages: PromptContext["recentMessages"];
   incomingMessage: string;
+  /**
+   * The FULL, unstripped message body (incl. quoted content the customer is
+   * replying to, e.g. a newsletter). Used ONLY to extract a coupon code the offer
+   * quotes — never added to the draft prompt (the prompt uses incomingMessage).
+   */
+  fullBody?: string;
   /** Email subject — often carries the order number; seen by classify + draft. */
   subject?: string;
   /**
@@ -48,7 +55,7 @@ export interface DraftReplyInput {
    */
   gatherShopify?: (
     classification: Classification,
-    extras: { productHandles: string[] },
+    extras: { productHandles: string[]; couponCandidates: string[] },
   ) => Promise<string | undefined>;
   /** Lazily fetches Odoo/RMA context once classified (text + optional voucher ref). */
   gatherOdoo?: (classification: Classification) => Promise<OdooGatherResult | undefined>;
@@ -130,7 +137,14 @@ export async function draftReplyForInbound(
           // otherwise lose the product it refers to (and e.g. its notify-me state).
           const handleText = [input.incomingMessage, ...input.recentMessages.map((m) => m.body)].join("\n");
           const productHandles = extractProductHandles(handleText);
-          shopifyContext = await input.gatherShopify(classification, { productHandles });
+          // Coupon codes the customer put in front of us: what they typed PLUS any
+          // quoted from the offer/newsletter they're replying to (which lives in
+          // fullBody, stripped out before triage). Only these get looked up.
+          const couponText = [input.subject ?? "", input.incomingMessage, input.fullBody ?? ""].join("\n");
+          const couponCandidates = Array.from(
+            new Set([...(classification.couponCode ? [classification.couponCode] : []), ...extractCouponCodes(couponText)]),
+          );
+          shopifyContext = await input.gatherShopify(classification, { productHandles, couponCandidates });
         } catch (e) {
           log.error("shopify_gather_failed", errInfo(e));
         }

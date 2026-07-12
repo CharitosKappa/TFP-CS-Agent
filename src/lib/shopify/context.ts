@@ -191,6 +191,12 @@ export async function gatherShopifyContext(input: {
   orderNumber?: string;
   customerEmail?: string;
   couponCode?: string;
+  /**
+   * Coupon codes the customer put in front of us (typed OR quoted from the offer
+   * they're replying to). ONLY these are looked up — never other/active codes, so
+   * we can't leak someone else's or an upcoming promo. See extractCouponCodes.
+   */
+  couponCandidates?: string[];
   /** Product handles from links in the customer's message (for fit/size advice). */
   productHandles?: string[];
   /** Shoe size the customer asked about — drives the sold-out → alternatives block. */
@@ -248,14 +254,23 @@ export async function gatherShopifyContext(input: {
         }
       }
     }
-    if (input.couponCode) {
-      // Modern code discounts, then (if not found) legacy price-rule codes —
-      // each isolated so one failing (e.g. missing scope) doesn't block the other.
-      const discount = await getDiscountByCodeWithLegacyFallback(input.couponCode);
+    // Look up ONLY the code(s) the customer put in front of us (typed or quoted
+    // from the offer they're replying to) — never other/active codes, so we can't
+    // leak another customer's or an upcoming promo. Each lookup is isolated.
+    const couponCodes = Array.from(
+      new Set([...(input.couponCode ? [input.couponCode] : []), ...(input.couponCandidates ?? [])]
+        .map((c) => c.trim()).filter(Boolean)),
+    ).slice(0, 5);
+    if (couponCodes.length) {
+      const found: string[] = [];
+      for (const code of couponCodes) {
+        const discount = await getDiscountByCodeWithLegacyFallback(code).catch(() => null);
+        if (discount) found.push(formatDiscount(discount));
+      }
       parts.push(
-        discount
-          ? formatDiscount(discount)
-          : `Κωδικός έκπτωσης "${input.couponCode}": δεν επιστράφηκε από το Shopify API. ` +
+        found.length
+          ? found.join("\n\n")
+          : `Κωδικός έκπτωσης "${couponCodes[0]}": δεν επιστράφηκε από το Shopify API. ` +
             `Αυτό ΔΕΝ σημαίνει απαραίτητα ότι δεν υπάρχει — μπορεί να ισχύει μόνο για ` +
             `συγκεκριμένα προϊόντα/συλλογές/αγορές ή να έχει δημιουργηθεί από εξωτερική ` +
             `εφαρμογή (affiliate/influencer) που δεν είναι ορατή εδώ. ΜΗΝ πεις στον πελάτη ` +

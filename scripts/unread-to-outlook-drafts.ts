@@ -59,7 +59,7 @@ async function main() {
   // ── Resolve each message once (sender/customer/body), dropping our own mail,
   // already-drafted messages, and empty bodies. Doing this up front lets us group
   // by customer before drafting.
-  const resolved: { msg: GraphMessage; customer: string; text: string; isContactForm: boolean }[] = [];
+  const resolved: { msg: GraphMessage; customer: string; text: string; fullBody: string; isContactForm: boolean }[] = [];
   for (const msg of unread) {
     try {
       const from = msg.from?.emailAddress?.address?.toLowerCase();
@@ -82,7 +82,7 @@ async function main() {
         ? stripQuotedReply(parsed?.message ?? "").trim() || stripQuotedReply(bodyText)
         : stripQuotedReply(bodyText);
       if (!text.trim()) { console.log(`- skip (empty body): ${msg.id.slice(0, 12)}…`); skipped++; continue; }
-      resolved.push({ msg, customer, text, isContactForm });
+      resolved.push({ msg, customer, text, fullBody: bodyText, isContactForm });
     } catch (e) {
       failed++;
       console.error(`✗ resolve failed: ${msg.id.slice(0, 12)}… — ${e instanceof Error ? e.message : e}`);
@@ -118,7 +118,7 @@ async function main() {
   // conditional on its kept sibling being in here (see below).
   const draftedIds = new Set<string>();
 
-  for (const { msg, customer, text, isContactForm } of resolved) {
+  for (const { msg, customer, text, fullBody, isContactForm } of resolved) {
     const subject = msg.subject ?? undefined;
     try {
       // Folded (older) duplicate: a same-request sibling was kept for drafting.
@@ -184,6 +184,7 @@ async function main() {
         recentMessages,
         relatedContext,
         incomingMessage: text,
+        fullBody,
         subject,
         images: media.images,
         attachmentSummary: media.summary,
@@ -193,11 +194,11 @@ async function main() {
         // Account/PII lookups are keyed to the VERIFIED sender (`customer`), never
         // to `c.customerEmail` (model-extracted from the body). A different body
         // email escalates via identityMismatch above; it never redirects lookups.
-        gatherShopify: (c, { productHandles }) =>
+        gatherShopify: (c, { productHandles, couponCandidates }) =>
           gatherShopifyContext({
             orderNumber: c.orderNumber,
             customerEmail: customer,
-            couponCode: c.couponCode,
+            couponCandidates,
             productHandles,
             productSize: c.productSize,
             productName: c.productName,

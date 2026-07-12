@@ -35,6 +35,34 @@ const DISCOUNT_QUERY = `query($code: String!) {
   }
 }`;
 
+// A coupon code sitting right after a coupon keyword — "με τον κωδικό EARLYEDIT",
+// "use code SUMMER20". Anchored on the keyword and an ASCII, mostly-caps token so
+// it never grabs an ordinary Greek/English word. Codes the customer quotes from a
+// newsletter live in the QUOTED body (which stripQuotedReply drops before triage),
+// so we scan the full body to recognize them — see extractCouponCodes.
+// NB: no `\b`/`\w` around the Greek stem "κωδικ" — JS regex (no /u) treats Greek
+// letters as non-word, so \b there never matches. Instead we consume any short run
+// of non-alnum chars (the Greek ending "ό", article, punctuation, spaces) between
+// the keyword and the ASCII code token.
+const COUPON_CODE_RE =
+  /(?:κωδικ|coupon|promo(?:tion)?(?:\s*code)?|discount\s*code|voucher|\bcode\b)[^A-Za-z0-9]{0,4}([A-Za-z0-9][A-Za-z0-9._-]{3,19})/gi;
+
+/**
+ * Coupon codes a customer put in front of us — typed, or quoted from the offer/
+ * newsletter they're replying to. Only these get looked up; we NEVER enumerate
+ * other or upcoming codes (leak risk). Returns unique, upper-cased codes.
+ */
+export function extractCouponCodes(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(COUPON_CODE_RE)) {
+    const raw = m[1].replace(/[.\-_]+$/, ""); // drop trailing punctuation ("ERYNN25." → "ERYNN25")
+    // The ORIGINAL case must read like a code (all-caps/alnum, at least one
+    // letter) — rejects lowercase words and bare numbers (order/phone).
+    if (/^[A-Z0-9][A-Z0-9._-]{3,19}$/.test(raw) && /[A-Z]/.test(raw)) out.add(raw.toUpperCase());
+  }
+  return [...out];
+}
+
 /** Looks up a discount code's status + conditions. Returns null if it doesn't exist. */
 export async function getDiscountByCode(
   code: string,
