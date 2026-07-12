@@ -6,6 +6,7 @@ import {
   type ShopifyDiscountSummary,
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
+import { findAbandonedCheckoutByEmail } from "./checkouts";
 import { getSizeAvailabilityBySku } from "../odoo/stock";
 import { catalogSizeFilterUrl, collectionUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, storefrontBase, type ShopifyProductSummary } from "./products";
 
@@ -212,6 +213,12 @@ export async function gatherShopifyContext(input: {
   productSize?: string;
   /** Product name the customer typed (no link) — used to infer a category size link. */
   productName?: string;
+  /**
+   * When true AND no order is found for the customer, look up a recent INCOMPLETE
+   * checkout (abandoned cart) for their email — for "I ordered but got no
+   * confirmation email" cases, so the reply can hand them the recovery link.
+   */
+  checkAbandonedCheckout?: boolean;
 }): Promise<string | undefined> {
   const parts: string[] = [];
   try {
@@ -293,6 +300,27 @@ export async function gatherShopifyContext(input: {
             `σε επιλεγμένα προϊόντα/για περιορισμένο διάστημα/με ελάχιστη αξία, ζήτησε τον ` +
             `σύνδεσμο του προϊόντος και την πηγή του κωδικού, και πρότεινε έλεγχο από συνάδελφο.`,
       );
+    }
+
+    // No order found, but the customer says they ordered / got no confirmation →
+    // look up their most recent INCOMPLETE checkout. If there is one, the order
+    // never completed (hence no email); hand them the recovery link to finish the
+    // SAME checkout instead of re-ordering. Email is matched exactly inside.
+    if (input.checkAbandonedCheckout && input.customerEmail && surfacedOrders.length === 0) {
+      const ac = await findAbandonedCheckoutByEmail(input.customerEmail).catch(() => null);
+      if (ac) {
+        const items = ac.items.map((i) => `${i.quantity}× ${i.title}`).join(", ");
+        parts.push(
+          [
+            `ΗΜΙΤΕΛΕΣ CHECKOUT (η παραγγελία ΔΕΝ ολοκληρώθηκε — γι' αυτό δεν στάλθηκε email επιβεβαίωσης):`,
+            `- Καλάθι: ${fmtDate(ac.createdAt)} · ${ac.total} ${ac.currency}`,
+            items ? `- Είδη: ${items}` : "",
+            `- ΣΥΝΔΕΣΜΟΣ ΟΛΟΚΛΗΡΩΣΗΣ (δώσ' τον στον πελάτη για να ολοκληρώσει την ΙΔΙΑ παραγγελία — ΟΧΙ νέα): ${ac.recoveryUrl}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+      }
     }
 
     // Products the customer linked to (fit/size questions) — surface each product's

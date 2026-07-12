@@ -202,6 +202,9 @@ async function main() {
             productHandles,
             productSize: c.productSize,
             productName: c.productName,
+            // "I ordered but got no confirmation email" cases → if no order is
+            // found, check for an incomplete checkout and surface its recovery link.
+            checkAbandonedCheckout: ["order_status", "payment", "shipping", "cancellation", "other"].includes(c.intent),
           }),
         gatherOdoo: (c) =>
           gatherOdooContext({
