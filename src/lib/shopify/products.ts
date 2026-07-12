@@ -244,6 +244,11 @@ export function productUrl(handle: string, base: string = STOREFRONT): string {
   return `${base}/products/${handle}`;
 }
 
+/** Public storefront URL for a collection handle (e.g. a discount's eligible collection). */
+export function collectionUrl(handle: string, base: string = STOREFRONT): string {
+  return `${base}/collections/${handle}`;
+}
+
 /**
  * Link to the FULL catalog (Shopify's built-in `all` collection) filtered to
  * in-stock items in `size`. The fallback when we can't pin down a category.

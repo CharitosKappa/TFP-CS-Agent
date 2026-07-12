@@ -3,6 +3,12 @@ import { resilientFetch } from "../http/resilient";
 import { log, errInfo } from "../observability/logger";
 import { getShopifyToken, shopifyGraphQL } from "./client";
 
+/** A collection/product a code is restricted to (name + storefront handle). */
+export interface DiscountTarget {
+  title: string;
+  handle: string;
+}
+
 export interface ShopifyDiscountSummary {
   code: string;
   title: string;
@@ -12,8 +18,24 @@ export interface ShopifyDiscountSummary {
   endsAt?: string | null;
   /** Human-readable conditions, e.g. "10% off, minimum €50". */
   summary?: string | null;
+  /**
+   * The SPECIFIC collections/products the code applies to, when it's restricted to
+   * them (so the reply can name them + link, instead of a vague "selected items").
+   * Empty when the code applies to everything or the targets aren't enumerable.
+   */
+  appliesTo?: { collections: DiscountTarget[]; products: DiscountTarget[] };
 }
 
+interface TargetsConn {
+  nodes: { title: string; handle: string }[];
+}
+interface CustomerGets {
+  items?: {
+    __typename?: string;
+    collections?: TargetsConn;
+    products?: TargetsConn;
+  } | null;
+}
 interface DiscountNode {
   __typename?: string;
   title?: string | null;
@@ -21,19 +43,38 @@ interface DiscountNode {
   startsAt?: string | null;
   endsAt?: string | null;
   summary?: string | null;
+  customerGets?: CustomerGets | null;
 }
 
-// Requires the `read_discounts` access scope on the app.
+// customerGets.items is a union — DiscountCollections / DiscountProducts carry the
+// SPECIFIC targets; AllDiscountItems means "everything". Requires read_discounts.
 const DISCOUNT_QUERY = `query($code: String!) {
   codeDiscountNodeByCode(code: $code) {
     codeDiscount {
       __typename
-      ... on DiscountCodeBasic { title status startsAt endsAt summary }
+      ... on DiscountCodeBasic {
+        title status startsAt endsAt summary
+        customerGets { items {
+          __typename
+          ... on DiscountCollections { collections(first: 20) { nodes { title handle } } }
+          ... on DiscountProducts { products(first: 30) { nodes { title handle } } }
+        } }
+      }
       ... on DiscountCodeBxgy { title status startsAt endsAt summary }
       ... on DiscountCodeFreeShipping { title status startsAt endsAt summary }
     }
   }
 }`;
+
+/** Pulls the specific collections/products a discount targets (empty = all/unknown). */
+function targetsOf(
+  collections?: TargetsConn | null,
+  products?: TargetsConn | null,
+): ShopifyDiscountSummary["appliesTo"] {
+  const cols = (collections?.nodes ?? []).map((n) => ({ title: n.title, handle: n.handle }));
+  const prods = (products?.nodes ?? []).map((n) => ({ title: n.title, handle: n.handle }));
+  return cols.length || prods.length ? { collections: cols, products: prods } : undefined;
+}
 
 // A coupon code sitting right after a coupon keyword — "με τον κωδικό EARLYEDIT",
 // "use code SUMMER20". Anchored on the keyword and an ASCII, mostly-caps token so
@@ -84,6 +125,7 @@ export async function getDiscountByCode(
     startsAt: d.startsAt ?? null,
     endsAt: d.endsAt ?? null,
     summary: d.summary ?? null,
+    appliesTo: targetsOf(d.customerGets?.items?.collections, d.customerGets?.items?.products),
   };
 }
 
@@ -106,8 +148,8 @@ interface PriceRuleNode {
     | null;
   itemEntitlements?: {
     targetAllLineItems?: boolean;
-    collections?: { nodes: { id: string }[] };
-    products?: { nodes: { id: string }[] };
+    collections?: { nodes: { title: string; handle: string }[] };
+    products?: { nodes: { title: string; handle: string }[] };
   } | null;
   prerequisiteSubtotalRange?: { greaterThanOrEqualTo?: string | null } | null;
 }
@@ -117,7 +159,11 @@ const PRICE_RULE_QUERY = `query($id: ID!) {
     ... on PriceRule {
       title status startsAt endsAt
       valueV2 { __typename ... on PricingPercentageValue { percentage } ... on MoneyV2 { amount currencyCode } }
-      itemEntitlements { targetAllLineItems collections(first: 1) { nodes { id } } products(first: 1) { nodes { id } } }
+      itemEntitlements {
+        targetAllLineItems
+        collections(first: 20) { nodes { title handle } }
+        products(first: 30) { nodes { title handle } }
+      }
       prerequisiteSubtotalRange { greaterThanOrEqualTo }
     }
   }
@@ -189,6 +235,7 @@ export async function getLegacyDiscountByCode(
     startsAt: pr.startsAt ?? null,
     endsAt: pr.endsAt ?? null,
     summary: priceRuleSummary(pr),
+    appliesTo: targetsOf(pr.itemEntitlements?.collections, pr.itemEntitlements?.products),
   };
 }
 

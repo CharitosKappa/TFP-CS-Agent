@@ -7,7 +7,7 @@ import {
 } from "./discounts";
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 import { getSizeAvailabilityBySku } from "../odoo/stock";
-import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, storefrontBase, type ShopifyProductSummary } from "./products";
+import { catalogSizeFilterUrl, collectionUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, storefrontBase, type ShopifyProductSummary } from "./products";
 
 // How many of a customer's most recent orders to expand in full (items, courier,
 // tracking, estimate) when the message cites no order number — enough to cover a
@@ -15,7 +15,7 @@ import { catalogSizeFilterUrl, colourSiblingsWithSize, getProductByHandle, infer
 // orders still appear as one-line entries in the customer block (getCustomerByEmail).
 const RECENT_ORDERS_TO_SURFACE = 5;
 
-function formatDiscount(d: ShopifyDiscountSummary): string {
+function formatDiscount(d: ShopifyDiscountSummary, base: string): string {
   const status =
     d.status === "ACTIVE"
       ? "ενεργός"
@@ -24,11 +24,20 @@ function formatDiscount(d: ShopifyDiscountSummary): string {
         : d.status === "SCHEDULED"
           ? "προγραμματισμένος (δεν ισχύει ακόμη)"
           : d.status;
+  // The SPECIFIC eligible collections/products, named + linked, so the reply can
+  // tell the customer exactly where the code applies instead of "selected items".
+  const targets = [
+    ...(d.appliesTo?.collections ?? []).map((c) => `  • Συλλογή «${c.title}»: ${collectionUrl(c.handle, base)}`),
+    ...(d.appliesTo?.products ?? []).map((p) => `  • Προϊόν «${p.title}»: ${productUrl(p.handle, base)}`),
+  ];
   return [
     `Κωδικός έκπτωσης "${d.code}": ${status}`,
     d.title && d.title !== d.code ? `- Τίτλος: ${d.title}` : "",
     d.summary ? `- Όροι: ${d.summary}` : "",
     d.endsAt ? `- Λήξη: ${fmtDate(d.endsAt)}` : "",
+    targets.length
+      ? `- ΙΣΧΥΕΙ ΓΙΑ ΤΑ ΕΞΗΣ (ανάφερέ τα ΟΝΟΜΑΣΤΙΚΑ στον πελάτη + δώσε τον σύνδεσμο):\n${targets.join("\n")}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -254,6 +263,12 @@ export async function gatherShopifyContext(input: {
         }
       }
     }
+    // Storefront locale for customer-facing links, by MARKET: GR shipping country →
+    // main domain (Greek); everyone else → /en-eu. Prefer the order's shipping
+    // country, else the customer's default-address country. Defined here so the
+    // coupon block below can build links to a code's eligible collections/products.
+    const base = storefrontBase(surfacedOrders[0]?.shippingCountry ?? customerCountry);
+
     // Look up ONLY the code(s) the customer put in front of us (typed or quoted
     // from the offer they're replying to) — never other/active codes, so we can't
     // leak another customer's or an upcoming promo. Each lookup is isolated.
@@ -265,7 +280,7 @@ export async function gatherShopifyContext(input: {
       const found: string[] = [];
       for (const code of couponCodes) {
         const discount = await getDiscountByCodeWithLegacyFallback(code).catch(() => null);
-        if (discount) found.push(formatDiscount(discount));
+        if (discount) found.push(formatDiscount(discount, base));
       }
       parts.push(
         found.length
@@ -279,10 +294,6 @@ export async function gatherShopifyContext(input: {
             `σύνδεσμο του προϊόντος και την πηγή του κωδικού, και πρότεινε έλεγχο από συνάδελφο.`,
       );
     }
-    // Storefront locale for customer-facing links, by MARKET: GR shipping country →
-    // main domain (Greek); everyone else → /en-eu. Prefer the order's shipping
-    // country, else the customer's default-address country.
-    const base = storefrontBase(surfacedOrders[0]?.shippingCountry ?? customerCountry);
 
     // Products the customer linked to (fit/size questions) — surface each product's
     // Fit Advice so the reply can advise on sizing from real data. Isolated per
