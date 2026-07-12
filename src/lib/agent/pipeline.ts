@@ -6,7 +6,7 @@ import type { InlineImage } from "../media/image";
 import type { OdooGatherResult } from "../odoo/context";
 import { extractRmaNumber } from "../odoo/rma";
 import { resolveOrderFromIdentifiers } from "../odoo/order-lookup";
-import { extractProductHandles } from "../shopify/products";
+import { extractProductHandles, extractSkus } from "../shopify/products";
 import { extractCouponCodes } from "../shopify/discounts";
 import { extractOrderNumber, resolveOrderName, stripNonOrderIdentifiers } from "../shopify/orders";
 import type { Classification, DraftResult, PromptContext } from "./types";
@@ -55,7 +55,7 @@ export interface DraftReplyInput {
    */
   gatherShopify?: (
     classification: Classification,
-    extras: { productHandles: string[]; couponCandidates: string[] },
+    extras: { productHandles: string[]; couponCandidates: string[]; productSkus: string[] },
   ) => Promise<string | undefined>;
   /** Lazily fetches Odoo/RMA context once classified (text + optional voucher ref). */
   gatherOdoo?: (classification: Classification) => Promise<OdooGatherResult | undefined>;
@@ -144,7 +144,11 @@ export async function draftReplyForInbound(
           const couponCandidates = Array.from(
             new Set([...(classification.couponCode ? [classification.couponCode] : []), ...extractCouponCodes(couponText)]),
           );
-          shopifyContext = await input.gatherShopify(classification, { productHandles, couponCandidates });
+          // SKUs the customer quoted (often in the subject) — the most precise
+          // product identifier. Scan subject + body + thread.
+          const skuText = [input.subject ?? "", input.incomingMessage, input.fullBody ?? "", ...input.recentMessages.map((m) => m.body)].join("\n");
+          const productSkus = extractSkus(skuText);
+          shopifyContext = await input.gatherShopify(classification, { productHandles, couponCandidates, productSkus });
         } catch (e) {
           log.error("shopify_gather_failed", errInfo(e));
         }

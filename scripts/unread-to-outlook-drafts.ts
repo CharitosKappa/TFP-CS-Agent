@@ -194,12 +194,13 @@ async function main() {
         // Account/PII lookups are keyed to the VERIFIED sender (`customer`), never
         // to `c.customerEmail` (model-extracted from the body). A different body
         // email escalates via identityMismatch above; it never redirects lookups.
-        gatherShopify: (c, { productHandles, couponCandidates }) =>
+        gatherShopify: (c, { productHandles, couponCandidates, productSkus }) =>
           gatherShopifyContext({
             orderNumber: c.orderNumber,
             customerEmail: customer,
             couponCandidates,
             productHandles,
+            productSkus,
             productSize: c.productSize,
             productName: c.productName,
             // "I ordered but got no confirmation email" cases → if no order is

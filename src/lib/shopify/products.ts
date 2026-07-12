@@ -168,6 +168,38 @@ export function extractProductHandles(text: string): string[] {
   return [...out];
 }
 
+// A SKU the customer quotes — typically in the subject ("SKU: 26012175") or body.
+// Anchored on the word SKU so it never grabs an order/phone number. Our SKUs are
+// master(5)+colour(3)[+size(3)] = 8 or 11 digits; accept 6–13 to be tolerant.
+const SKU_RE = /\bSKU\b\s*[:#.\-]?\s*(\d{6,13})/gi;
+
+/** SKUs the customer put in front of us (subject/body). Unique, in order seen. */
+export function extractSkus(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(SKU_RE)) out.add(m[1]);
+  return [...out];
+}
+
+const VARIANT_HANDLE_BY_SKU = `query($q: String!) {
+  productVariants(first: 1, query: $q) { edges { node { product { handle } } } }
+}`;
+
+/**
+ * Resolves a customer-quoted SKU to its product. Variant SKUs are
+ * master(5)+colour(3)+size(3), so a prefix match lets an 8-digit colourway OR a
+ * full 11-digit SKU both resolve to the product; then we reuse getProductByHandle
+ * for the full summary (sizes, notify-me, category…). Null if nothing matches.
+ */
+export async function getProductBySku(sku: string): Promise<ShopifyProductSummary | null> {
+  const s = sku.trim();
+  if (!/^\d{6,13}$/.test(s)) return null;
+  const data = await shopifyGraphQL<{
+    productVariants: { edges: { node: { product: { handle: string } } }[] };
+  }>(VARIANT_HANDLE_BY_SKU, { q: `sku:${s}*` }).catch(() => null);
+  const handle = data?.productVariants.edges[0]?.node.product.handle;
+  return handle ? getProductByHandle(handle) : null;
+}
+
 /**
  * Resolves a product NAME the customer typed to product handles, via the public
  * storefront predictive-search endpoint. Customers usually quote the title in

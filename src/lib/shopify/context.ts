@@ -8,7 +8,7 @@ import {
 import { getOrderByName, type ShopifyOrderSummary } from "./orders";
 import { findAbandonedCheckoutByEmail } from "./checkouts";
 import { getSizeAvailabilityBySku } from "../odoo/stock";
-import { catalogSizeFilterUrl, collectionUrl, colourSiblingsWithSize, getProductByHandle, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, storefrontBase, type ShopifyProductSummary } from "./products";
+import { catalogSizeFilterUrl, collectionUrl, colourSiblingsWithSize, getProductByHandle, getProductBySku, inferCategoryCollection, productUrl, searchProductHandlesByName, sizeFilterUrl, storefrontBase, type ShopifyProductSummary } from "./products";
 
 // How many of a customer's most recent orders to expand in full (items, courier,
 // tracking, estimate) when the message cites no order number — enough to cover a
@@ -209,6 +209,8 @@ export async function gatherShopifyContext(input: {
   couponCandidates?: string[];
   /** Product handles from links in the customer's message (for fit/size advice). */
   productHandles?: string[];
+  /** SKUs the customer quoted (e.g. subject "SKU: 26012175") — resolved to products. */
+  productSkus?: string[];
   /** Shoe size the customer asked about — drives the sold-out → alternatives block. */
   productSize?: string;
   /** Product name the customer typed (no link) — used to infer a category size link. */
@@ -330,6 +332,19 @@ export async function gatherShopifyContext(input: {
     // Handles of product blocks already pushed — the three resolution paths
     // (links → name search → order items) overlap, so dedupe across them.
     const shownHandles = new Set<string>();
+    // SKU is the most precise identifier the customer can give (often in the
+    // subject, e.g. "SKU: 26012175") — resolve it FIRST, authoritative like a link.
+    if (input.productSkus?.length) {
+      const products = await Promise.all(
+        input.productSkus.slice(0, 3).map((s) => getProductBySku(s).catch(() => null)),
+      );
+      for (const p of products) {
+        if (!p || shownHandles.has(p.handle)) continue;
+        resolvedProduct = true;
+        shownHandles.add(p.handle);
+        parts.push(await productBlock(p, input.productSize, base));
+      }
+    }
     if (input.productHandles?.length) {
       const products = await Promise.all(
         input.productHandles
