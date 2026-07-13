@@ -71,8 +71,17 @@ function formatOrder(o: ShopifyOrderSummary): string {
   // that's the real signal, so don't clutter the block with both.
   const estimate =
     o.deliveryEstimate && !tracking ? formatDeliveryEstimate(o.deliveryEstimate) : "";
+  // Return window is 30 days from the ORDER date — flag when it's passed so the
+  // reply doesn't direct an out-of-window return to the RMA portal (see returns
+  // knowledge). Computed relative to now; a defective/wrong item is exempt.
+  const daysSinceOrder = Math.floor((Date.now() - new Date(o.createdAt).getTime()) / 86_400_000);
+  const returnWindow =
+    daysSinceOrder > 30
+      ? `- ΠΡΟΣΟΧΗ (επιστροφές): η παραγγελία έγινε πριν ${daysSinceOrder} ημέρες — ΠΕΡΑΝ του 30ήμερου παραθύρου επιστροφής (από ημ/νία παραγγελίας). Μη διαθέσιμη κανονική επιστροφή/RMA — ΕΞΑΙΡΕΣΗ μόνο ελαττωματικό/λάθος προϊόν.`
+      : "";
   return [
     `Παραγγελία ${o.name} (${fmtDate(o.createdAt)})`,
+    returnWindow,
     `- Εκτέλεση: ${o.fulfillmentStatus} | Κατάσταση πληρωμής: ${o.financialStatus}`,
     o.paymentMethod ? `- Τρόπος πληρωμής: ${o.paymentMethod}` : "",
     `- Σύνολο: ${o.total} ${o.currency}`,
