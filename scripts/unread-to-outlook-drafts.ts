@@ -4,7 +4,7 @@ import { classifyEmail } from "../src/lib/agent/classify";
 import { draftReplyForInbound } from "../src/lib/agent/pipeline";
 import { judgeSameRequest } from "../src/lib/agent/dedup";
 import { fetchInboundMedia } from "../src/lib/agent/inbound-media";
-import { recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
+import { findHandledDuplicate, recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
 import { loadPolicies } from "../src/lib/knowledge/policies";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
@@ -156,6 +156,22 @@ async function main() {
         console.log(`- skip (no reply needed): ${msg.id.slice(0, 12)}…`);
         skipped++;
         continue;
+      }
+
+      // Cross-thread/cross-run dedup: the customer re-sent the SAME request under
+      // a NEW subject and a PRIOR run already drafted it in another thread (the
+      // in-batch fold above only catches same-run duplicates). Fold this one too —
+      // one draft/task already covers it — so we don't double-draft/double-task.
+      if (!keptId) {
+        const handled = await findHandledDuplicate(customer, msg.conversationId, { subject, body: text });
+        if (handled) {
+          const cats = Array.from(new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, "TFP: Consolidated duplicate"]));
+          await flagMessage(msg.id, { categories: cats });
+          await markMessageRead(msg.id);
+          consolidatedDupes++;
+          console.log(`↯ same request already handled in thread ${handled.conversationId.slice(0, 12)}… — folded (cross-thread): ${msg.id.slice(0, 12)}…`);
+          continue;
+        }
       }
 
       const media = await fetchInboundMedia(msg.id, msg.body?.content ?? undefined);
