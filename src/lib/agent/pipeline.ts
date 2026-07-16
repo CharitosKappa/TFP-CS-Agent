@@ -145,9 +145,14 @@ export async function draftReplyForInbound(
             new Set([...(classification.couponCode ? [classification.couponCode] : []), ...extractCouponCodes(couponText)]),
           );
           // SKUs the customer quoted (often in the subject) — the most precise
-          // product identifier. Scan subject + body + thread.
+          // product identifier. Scan subject + body + thread. The regex only
+          // catches "SKU:"-anchored numbers (so it never grabs an order/phone
+          // number); the classifier adds the common BARE-code case (e.g. a
+          // customer who just writes "24037035 …"), which the regex would miss.
           const skuText = [input.subject ?? "", input.incomingMessage, input.fullBody ?? "", ...input.recentMessages.map((m) => m.body)].join("\n");
-          const productSkus = extractSkus(skuText);
+          const productSkus = Array.from(
+            new Set([...(classification.productSku ? [classification.productSku] : []), ...extractSkus(skuText)]),
+          );
           shopifyContext = await input.gatherShopify(classification, { productHandles, couponCandidates, productSkus });
         } catch (e) {
           log.error("shopify_gather_failed", errInfo(e));

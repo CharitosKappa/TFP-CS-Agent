@@ -38,6 +38,14 @@ export interface Classification {
    */
   productName?: string;
   /**
+   * A product code the customer quotes — an 8-digit colourway or 11-digit variant
+   * SKU (e.g. "24037035") — even when written as a BARE number with no "SKU"
+   * label. The regex extractor only catches "SKU:"-anchored numbers (to avoid
+   * grabbing order/phone numbers), so the classifier is what captures the common
+   * bare-code case. The most precise product key for the Shopify lookup.
+   */
+  productSku?: string;
+  /**
    * The customer is explicitly asking to RECEIVE or RESEND the return courier
    * voucher/label (e.g. "δεν βρίσκω το voucher", "στείλτε μου ξανά την ετικέτα").
    * Trigger for attaching the real voucher PDF from Odoo to the reply.
