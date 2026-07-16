@@ -15,6 +15,7 @@ import {
   createReplyDraft,
   fetchInboxMessages,
   flagMessage,
+  makeInlinePhotosViewable,
   markMessageRead,
   type OutgoingAttachment,
 } from "../src/lib/graph/messages";
@@ -183,6 +184,18 @@ async function main() {
       }
 
       const media = await fetchInboundMedia(msg.id, msg.body?.content ?? undefined);
+      // Phone-mail photos often arrive as broken-inline attachments Outlook won't
+      // render or open. Surface them as normal, openable attachments on our copy of
+      // the inbound so the reviewer can see what the agent's vision model saw.
+      // Best-effort — never let this block drafting.
+      if (media.images.length) {
+        try {
+          const n = await makeInlinePhotosViewable(msg.id);
+          if (n) console.log(`  📎 surfaced ${n} inline photo(s) as openable attachment(s): ${msg.id.slice(0, 12)}…`);
+        } catch (e) {
+          console.error(`  ! could not surface inline photos: ${e instanceof Error ? e.message : e}`);
+        }
+      }
       // Thread-aware: pull prior messages of THIS conversation from Graph so the
       // draft is never blind to the history (no DB needed).
       const recentMessages = await recentMessagesFromThread(
