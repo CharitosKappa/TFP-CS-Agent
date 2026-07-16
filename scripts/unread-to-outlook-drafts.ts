@@ -157,6 +157,14 @@ async function main() {
         skipped++;
         continue;
       }
+      // Unsolicited B2B/supplier/agency solicitation — not a customer. We neither
+      // draft nor reply, and (per instruction) leave the message UNTOUCHED: no tag,
+      // no read, no task — so a human can still handle it manually if they choose.
+      if (classification.vendorPitch) {
+        console.log(`- skip (vendor/B2B solicitation, left untouched): ${msg.id.slice(0, 12)}…`);
+        skipped++;
+        continue;
+      }
 
       // Cross-thread/cross-run dedup: the customer re-sent the SAME request under
       // a NEW subject and a PRIOR run already drafted it in another thread (the

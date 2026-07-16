@@ -59,6 +59,15 @@ export interface Classification {
    */
   escalationReasons?: string[];
   sentiment: "positive" | "neutral" | "negative";
+  /**
+   * The sender is not a customer at all but a third party running UNSOLICITED
+   * B2B/commercial outreach — a supplier/manufacturer pitching products, wholesale
+   * or sourcing, dropshipping, or an agency selling SEO/marketing/IT/web services,
+   * investment, etc. These are skipped entirely (no draft, no reply, no task). Does
+   * NOT include press/media/influencer or brand-collaboration inquiries, which
+   * still escalate for a human (see the media_influencer red-line).
+   */
+  vendorPitch?: boolean;
   /** One-line summary of what the customer wants. */
   summary: string;
   /**
