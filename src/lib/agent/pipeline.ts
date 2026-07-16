@@ -128,6 +128,11 @@ export async function draftReplyForInbound(
   let shopifyContext = input.shopifyContext;
   let odooContext = input.odooContext;
   let voucherAttachmentId: number | undefined;
+  // Tracks a THROWN Odoo lookup (network/RPC error), NOT a clean "nothing found".
+  // On a return/defect case, a thrown lookup means we drafted WITHOUT the
+  // authoritative RMA state — so we escalate rather than let the model guess at
+  // portal/return instructions from thread history alone (see guard below).
+  let odooLookupFailed = false;
   await Promise.all([
     (async () => {
       if (!shopifyContext && input.gatherShopify) {
@@ -168,6 +173,7 @@ export async function draftReplyForInbound(
             voucherAttachmentId = odoo.voucherAttachmentId;
           }
         } catch (e) {
+          odooLookupFailed = true;
           log.error("odoo_gather_failed", errInfo(e));
         }
       }
@@ -202,6 +208,28 @@ export async function draftReplyForInbound(
     redline.escalate = true;
     if (!redline.reasons.includes("repeat_after_reply")) {
       redline.reasons.push("repeat_after_reply");
+    }
+  }
+
+  // On a return/defect/cancellation case the RMA state is authoritative: if the
+  // Odoo lookup THREW (not merely found nothing), we drafted blind to whether a
+  // return already exists — exactly the situation where the model can wrongly send
+  // the customer to the portal to "create" an RMA we already opened. Escalate with
+  // a distinct reason so the reviewer knows the RMA state is UNCONFIRMED, rather
+  // than trusting a draft assembled from thread history alone.
+  const returnLikeCase =
+    classification.intent === "returns_refunds" ||
+    classification.intent === "complaint" ||
+    classification.intent === "cancellation" ||
+    !!classification.rmaNumber ||
+    classification.asksForReturnLabel === true ||
+    (classification.escalationReasons ?? []).some(
+      (r) => r === "product_defect" || r === "quality_complaint",
+    );
+  if (odooLookupFailed && returnLikeCase) {
+    redline.escalate = true;
+    if (!redline.reasons.includes("odoo_lookup_failed")) {
+      redline.reasons.push("odoo_lookup_failed");
     }
   }
 
