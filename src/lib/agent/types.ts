@@ -68,6 +68,15 @@ export interface Classification {
    * still escalate for a human (see the media_influencer red-line).
    */
   vendorPitch?: boolean;
+  /**
+   * The request most likely reached us BY MISTAKE — it concerns a product we
+   * clearly don't sell (we're a women's-footwear shop: shoes/sandals & related
+   * accessories) or an order evidently not ours, i.e. it belongs to a DIFFERENT
+   * retailer (even if the sender happens to also be our customer). Unlike a
+   * vendorPitch we still reply — a polite "you may have the wrong shop" — and
+   * escalate; we never invent a return or map it onto an unrelated order.
+   */
+  wrongRecipient?: boolean;
   /** One-line summary of what the customer wants. */
   summary: string;
   /**

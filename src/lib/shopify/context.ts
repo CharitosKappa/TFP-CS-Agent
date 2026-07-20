@@ -270,6 +270,14 @@ export async function gatherShopifyContext(input: {
       if (order && !foreign) {
         parts.push(formatOrder(order));
         surfacedOrders.push(order);
+      } else if (!order) {
+        // The cited order number does NOT exist in our system. Flag it explicitly so
+        // the reply doesn't silently map it onto a DIFFERENT order the customer has,
+        // or invent a process for it — a not-found number often means a typo or an
+        // email meant for another retailer (see the wrong-recipient guidance).
+        parts.push(
+          `ΠΡΟΣΟΧΗ: η παραγγελία #${input.orderNumber.replace(/^#/, "")} που ανέφερε ο πελάτης ΔΕΝ βρέθηκε στο σύστημά μας. ΜΗΝ την ταυτίζεις με άλλη παραγγελία του πελάτη και ΜΗΝ εφευρίσκεις διαδικασία γι' αυτήν.`,
+        );
       }
     }
     let customerCountry: string | null = null;

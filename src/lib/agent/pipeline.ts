@@ -234,6 +234,16 @@ export async function draftReplyForInbound(
     }
   }
 
+  // Likely misdirected email — about a product we don't sell or an order that isn't
+  // ours (a different retailer's). We still reply politely, but a human should
+  // confirm rather than the agent guessing at a return for something outside TFP.
+  if (classification.wrongRecipient) {
+    redline.escalate = true;
+    if (!redline.reasons.includes("wrong_recipient")) {
+      redline.reasons.push("wrong_recipient");
+    }
+  }
+
   const ctx: PromptContext = {
     policies: input.policies,
     caseSummary: input.caseSummary,
