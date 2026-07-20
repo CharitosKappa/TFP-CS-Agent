@@ -1,6 +1,7 @@
 import { fmtDate } from "../util/date";
 import { log } from "../observability/logger";
 import {
+  fetchSalesDocType,
   findRmaRecordsByCustomerEmail,
   findRmaRecordsByName,
   findRmaRecordsByOrder,
@@ -129,11 +130,25 @@ async function gatherOdooContextOnce(input: {
     if (records.length === 0 && email) {
       records = await findRmaRecordsByCustomerEmail(email);
     }
-    if (records.length === 0) return undefined;
 
     // Records come back newest-first: prefer the latest active, else the newest.
     const chosenRecord =
-      records.find((r) => !TERMINAL_STATES.has(r.state || "")) ?? records[0];
+      records.length > 0 ? (records.find((r) => !TERMINAL_STATES.has(r.state || "")) ?? records[0]) : undefined;
+
+    // Sales-document type (τιμολόγιο vs απόδειξη) for the order — from the cited
+    // order number, else the found RMA's order. An INVOICED order restricts the
+    // return to refund + credit note (no Store Credit), so surface it EVEN when
+    // there's no RMA yet (a customer just asking how to return an invoiced order).
+    const docOrder =
+      orderNumber || (Array.isArray(chosenRecord?.order_id) ? chosenRecord!.order_id[1] : undefined);
+    const docType = await fetchSalesDocType(docOrder);
+    const docTypeLine =
+      docType === "invoice"
+        ? "- Παραστατικό πώλησης: ΤΙΜΟΛΟΓΙΟ (τιμολόγιο αγοράς). Στην επιστροφή διατίθεται ΜΟΝΟ επιστροφή χρημάτων με έκδοση ΠΙΣΤΩΤΙΚΟΥ τιμολογίου — το **Store Credit ΔΕΝ είναι διαθέσιμο**. ΜΗΝ προτείνεις Store Credit σε αυτή την περίπτωση."
+        : "";
+
+    if (!chosenRecord) return docTypeLine ? { text: docTypeLine } : undefined;
+
     const chosen = await hydrateRma(chosenRecord);
     let text = formatRma(chosen);
 
@@ -147,7 +162,7 @@ async function gatherOdooContextOnce(input: {
         " αυτόματα σε αυτή την απάντηση — ανάφερέ το στον πελάτη ως συνημμένο και" +
         " ΜΗΝ τον παραπέμπεις να το αναζητήσει αλλού.";
     }
-    return { text, voucherAttachmentId };
+    return { text: [docTypeLine, text].filter(Boolean).join("\n"), voucherAttachmentId };
   } catch (e) {
     // A genuine Odoo failure (auth/RPC/network) is NOT "nothing found" (which
     // returns undefined above). Rethrow so the wrapper can retry, then ultimately

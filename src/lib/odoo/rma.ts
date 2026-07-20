@@ -247,6 +247,37 @@ async function fetchReturnShipment(
   }
 }
 
+export type SalesDocType = "invoice" | "receipt";
+
+/**
+ * The sales-document type issued for an order — a τιμολόγιο (business INVOICE; e.g.
+ * journal "Τιμολόγιο Πώλησης", name "ΤΠ…") vs an απόδειξη λιανικής (retail RECEIPT;
+ * "ΑΛΠ…") — read from the posted customer invoice (account.move) on the order. Both
+ * are move_type out_invoice; the journal/name tells them apart. Matters for returns:
+ * an INVOICED order can be refunded ONLY with a credit note (πιστωτικό) — Store
+ * Credit is not available. Returns null (→ normal flow) unless we POSITIVELY identify
+ * the type, so we never wrongly restrict a retail order. Best-effort.
+ */
+export async function fetchSalesDocType(orderNumber: string | undefined): Promise<SalesDocType | null> {
+  const o = orderNumber?.replace(/^#/, "").trim();
+  if (!o) return null;
+  try {
+    const rows = await execKw<{ journal_id: Many2One; name: string | false }[]>(
+      "account.move", "search_read",
+      [[["invoice_origin", "=", o], ["move_type", "=", "out_invoice"], ["state", "=", "posted"]]],
+      { fields: ["journal_id", "name"], order: "id desc", limit: 1 },
+    );
+    const r = rows[0];
+    if (!r) return null;
+    const label = `${m2oName(r.journal_id) ?? ""} ${r.name ?? ""}`;
+    if (/αποδειξ|λιανικ|ΑΛΠ/i.test(label)) return "receipt";
+    if (/τιμολ|ΤΠ/i.test(label)) return "invoice";
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function toSummary(
   r: RmaRecord,
   lines: Map<number, RmaLine>,
