@@ -59,6 +59,16 @@ function formatDeliveryEstimate(
   return parts.join(" · ");
 }
 
+// EU-27 (ISO-2). Flags whether a return would ship FROM the EU: DHL courier
+// PICKUP via MyDHL+ works for EU origins, but for a THIRD country (e.g. GB) DHL
+// rejects it as an import ("pickup cannot be scheduled for an import shipment"),
+// so those returns go via drop-off / local DHL instead (see returns knowledge).
+// Best-effort — an unknown/empty country simply gets no flag.
+const EU_COUNTRIES = new Set([
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+  "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+]);
+
 function formatOrder(o: ShopifyOrderSummary): string {
   const items = o.lineItems
     .map((li) => `${li.quantity}× ${li.title}${li.variantTitle ? ` (${li.variantTitle})` : ""}${li.sku ? ` (SKU: ${li.sku})` : ""}`)
@@ -79,6 +89,16 @@ function formatOrder(o: ShopifyOrderSummary): string {
     daysSinceOrder > 30
       ? `- ΠΡΟΣΟΧΗ (επιστροφές): η παραγγελία έγινε πριν ${daysSinceOrder} ημέρες — ΠΕΡΑΝ του 30ήμερου παραθύρου επιστροφής (από ημ/νία παραγγελίας). Μη διαθέσιμη κανονική επιστροφή/RMA — ΕΞΑΙΡΕΣΗ μόνο ελαττωματικό/λάθος προϊόν.`
       : "";
+  // Shipping origin for a return + an EU / third-country flag, so the reply gives
+  // the right DHL return route (EU → MyDHL+ pickup; third country → drop-off /
+  // local DHL). See the returns knowledge.
+  const shipCountry = o.shippingCountry?.toUpperCase() ?? "";
+  const shipTo = [o.shippingCity, shipCountry].filter(Boolean).join(", ");
+  const euFlag = shipCountry
+    ? EU_COUNTRIES.has(shipCountry)
+      ? " (εντός ΕΕ)"
+      : " (ΕΚΤΟΣ ΕΕ — τρίτη χώρα)"
+    : "";
   return [
     `Παραγγελία ${o.name} (${fmtDate(o.createdAt)})`,
     returnWindow,
@@ -86,7 +106,7 @@ function formatOrder(o: ShopifyOrderSummary): string {
     o.paymentMethod ? `- Τρόπος πληρωμής: ${o.paymentMethod}` : "",
     `- Σύνολο: ${o.total} ${o.currency}`,
     o.shippingMethod ? `- Τρόπος αποστολής (courier): ${o.shippingMethod}` : "",
-    o.shippingCity ? `- Αποστολή προς: ${o.shippingCity}` : "",
+    shipTo ? `- Αποστολή προς: ${shipTo}${euFlag}` : "",
     items ? `- Είδη: ${items}` : "",
     tracking ? `- Tracking: ${tracking}` : "",
     estimate ? `- Εκτιμώμενοι χρόνοι (ενδεικτικοί, όχι εγγύηση): ${estimate}` : "",

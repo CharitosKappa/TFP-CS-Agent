@@ -93,6 +93,12 @@ export interface RmaSummary {
   refundPaymentStatus: string | null;
   /** Carrier return-label URL, when the RMA has been sent. */
   returnTrackingUrl: string | null;
+  /**
+   * DHL RETURN waybill number (from the return picking's carrier_tracking_ref) —
+   * what the customer hands to DHL to drop off / schedule / arrange the return.
+   * null when there's no return picking yet or no read access.
+   */
+  returnWaybill: string | null;
   /** Odoo ir.attachment id of the courier voucher PDF on this RMA, if present. */
   voucherAttachmentId: number | null;
   createdAt: string | null;
@@ -197,11 +203,42 @@ async function fetchServiceCost(moveId: Many2One): Promise<number> {
   }
 }
 
+/**
+ * The DHL RETURN waybill number for an RMA — printed on the return label, and what
+ * the customer must give to DHL (drop-off / pickup / local DHL customer service).
+ * It lives on the RETURN picking (stock.picking) whose `origin` is the RMA name,
+ * as `carrier_tracking_ref` — NOT on the RMA record itself. Matched on origin =
+ * RMA name EXACTLY: a `like` match false-hits unrelated orders (e.g. "6785" hits
+ * order 16785). Best-effort: null on no picking / no read access.
+ */
+async function fetchReturnWaybill(rmaName: string | false): Promise<string | null> {
+  if (!rmaName) return null;
+  try {
+    const rows = await execKw<
+      { carrier_tracking_ref: string | false; name: string | false; picking_type_id: Many2One }[]
+    >(
+      "stock.picking", "search_read",
+      [[["origin", "=", rmaName]]],
+      { fields: ["carrier_tracking_ref", "name", "picking_type_id"], order: "id desc" },
+    );
+    const withRef = rows.filter((p) => p.carrier_tracking_ref);
+    if (withRef.length === 0) return null;
+    // Prefer the RETURN-receipt picking (name "RET/…" or a return-type name).
+    const ret = withRef.find(
+      (p) => /^RET/i.test(p.name || "") || /return/i.test(m2oName(p.picking_type_id) || ""),
+    );
+    return (ret ?? withRef[0]).carrier_tracking_ref || null;
+  } catch {
+    return null;
+  }
+}
+
 function toSummary(
   r: RmaRecord,
   lines: Map<number, RmaLine>,
   voucherAttachmentId: number | null,
   serviceCost: number,
+  returnWaybill: string | null,
 ): RmaSummary {
   const stateCode = r.state || "";
   return {
@@ -220,6 +257,7 @@ function toSummary(
       ? (REFUND_PAYMENT_STATE[r.reverse_move_payment_state] ?? r.reverse_move_payment_state)
       : null,
     returnTrackingUrl: orNull(r.dhl_locator_url),
+    returnWaybill,
     voucherAttachmentId,
     createdAt: orNull(r.create_date),
     lines: (r.line_ids ?? []).map((id) => lines.get(id)).filter((l): l is RmaLine => Boolean(l)),
@@ -237,12 +275,13 @@ async function searchRmaRecords(domain: unknown[], limit = 10): Promise<RmaRecor
 
 /** Adds the lines + voucher attachment + service cost to a single record (fetched concurrently). */
 export async function hydrateRma(r: RmaRecord): Promise<RmaSummary> {
-  const [lines, vouchers, serviceCost] = await Promise.all([
+  const [lines, vouchers, serviceCost, returnWaybill] = await Promise.all([
     fetchLines(r.line_ids ?? []),
     fetchVoucherIds([r.id]),
     fetchServiceCost(r.service_cost_move_id),
+    fetchReturnWaybill(r.name),
   ]);
-  return toSummary(r, lines, vouchers.get(r.id) ?? null, serviceCost);
+  return toSummary(r, lines, vouchers.get(r.id) ?? null, serviceCost, returnWaybill);
 }
 
 /**

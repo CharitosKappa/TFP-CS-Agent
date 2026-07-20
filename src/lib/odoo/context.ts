@@ -46,6 +46,9 @@ function formatRma(r: RmaSummary): string {
     r.returnTrackingUrl
       ? `- Ετικέτα/voucher επιστροφής: έχει εκδοθεί και απεστάλη συνημμένη στο email αποδοχής του RMA`
       : "",
+    r.returnWaybill
+      ? `- Αριθμός waybill επιστροφής (DHL): ${r.returnWaybill} — ΔΩΣ' ΤΟΝ ΑΠΕΥΘΕΙΑΣ στον πελάτη όταν του εξηγείς πώς να παραδώσει/προγραμματίσει την επιστροφή (drop-off, τοπική DHL ή MyDHL+), αντί να τον παραπέμπεις γενικά στο email του RMA`
+      : "",
     items ? `- Είδη προς επιστροφή: ${items}` : "",
     // Business rule: one open RMA at a time — the portal rejects a second request
     // until the current one closes (processed/cancelled). Stated on ACTIVE RMAs so
