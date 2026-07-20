@@ -240,6 +240,7 @@ async function main() {
             productSkus,
             productSize: c.productSize,
             productName: c.productName,
+            productColor: c.productColor,
             // "I ordered but got no confirmation email" cases → if no order is
             // found, check for an incomplete checkout and surface its recovery link.
             checkAbandonedCheckout: ["order_status", "payment", "shipping", "cancellation", "other"].includes(c.intent),

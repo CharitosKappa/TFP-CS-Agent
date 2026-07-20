@@ -46,6 +46,13 @@ export interface Classification {
    */
   productSku?: string;
   /**
+   * A colour the customer wants for a product — especially when they want the SAME
+   * model in a DIFFERENT colour (e.g. "το ίδιο σε πράσινο" → "πράσινο"/"green"). Lets
+   * the lookup surface that model's colour siblings so the reply names the right
+   * colourway itself instead of asking the customer for a link/SKU.
+   */
+  productColor?: string;
+  /**
    * The customer is explicitly asking to RECEIVE or RESEND the return courier
    * voucher/label (e.g. "δεν βρίσκω το voucher", "στείλτε μου ξανά την ετικέτα").
    * Trigger for attaching the real voucher PDF from Odoo to the reply.

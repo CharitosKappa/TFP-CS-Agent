@@ -178,13 +178,34 @@ function euSizeCandidates(asked: string): string[] {
   return [...out];
 }
 
-async function productBlock(p: ShopifyProductSummary, askedSize: string | undefined, base: string): Promise<string> {
+async function productBlock(
+  p: ShopifyProductSummary,
+  askedSize: string | undefined,
+  base: string,
+  wantedColour?: string,
+): Promise<string> {
   let block = formatProduct(p);
   // Match the asked size against the catalog's EU sizes, accepting dual/regional
   // forms ("4/37") and bare UK sizes ("4" → EU 37) — a strict equality check
   // would miss a sold-out size and never surface its colour-sibling alternative.
   const candidates = askedSize ? euSizeCandidates(askedSize) : [];
   const askedEntry = candidates.length ? p.sizes.find((s) => candidates.includes(s.size)) : undefined;
+  // Customer wants the SAME model in a DIFFERENT colour: surface the model's colour
+  // siblings (with the asked size's availability) so the reply names the right
+  // colourway itself — never ask the customer for a link/SKU they don't have. This
+  // is independent of the sold-out branch below (the ordered colour may well have
+  // the size; the point is a different colour).
+  if (wantedColour && p.master) {
+    const size = askedEntry?.size ?? candidates[0];
+    if (size) {
+      const sibs = (await colourSiblingsWithSize(p.master, size).catch(() => []))
+        .filter((s) => s.handle !== p.handle);
+      block += sibs.length
+        ? `\n- Ο πελάτης ζητά ΑΛΛΟ ΧΡΩΜΑ («${wantedColour}») του ίδιου μοντέλου. Χρώματα του μοντέλου διαθέσιμα στο μέγεθος ${size} — βρες αυτό που ταιριάζει και δώσε σύνδεσμο+SKU· ΜΗΝ ζητάς SKU/σύνδεσμο από τον πελάτη:\n` +
+            sibs.map((s) => `  • ${s.title}${s.colorSku ? ` (SKU: ${s.colorSku})` : ""}: ${productUrl(s.handle, base)}`).join("\n")
+        : `\n- Ο πελάτης ζητά άλλο χρώμα («${wantedColour}») στο μέγεθος ${size}, αλλά ΔΕΝ βρέθηκε άλλο χρώμα του μοντέλου διαθέσιμο σε αυτό το μέγεθος — ενημέρωσέ τον ανάλογα (ΜΗΝ ζητάς SKU).`;
+    }
+  }
   if (askedEntry && !askedEntry.available) {
     const size = askedEntry.size; // normalized EU catalog size, e.g. "37"
     // Odoo restock signal for THIS size (best-effort): sold out on Shopify/LGK but
@@ -244,6 +265,8 @@ export async function gatherShopifyContext(input: {
   productSize?: string;
   /** Product name the customer typed (no link) — used to infer a category size link. */
   productName?: string;
+  /** Colour the customer wants (esp. same model, different colour) — surfaces the model's colour siblings. */
+  productColor?: string;
   /**
    * When true AND no order is found for the customer, look up a recent INCOMPLETE
    * checkout (abandoned cart) for their email — for "I ordered but got no
@@ -379,7 +402,7 @@ export async function gatherShopifyContext(input: {
         if (!p || shownHandles.has(p.handle)) continue;
         resolvedProduct = true;
         shownHandles.add(p.handle);
-        parts.push(await productBlock(p, input.productSize, base));
+        parts.push(await productBlock(p, input.productSize, base, input.productColor));
       }
     }
     if (input.productHandles?.length) {
@@ -392,7 +415,7 @@ export async function gatherShopifyContext(input: {
         if (!p) continue;
         resolvedProduct = true;
         shownHandles.add(p.handle);
-        parts.push(await productBlock(p, input.productSize, base));
+        parts.push(await productBlock(p, input.productSize, base, input.productColor));
       }
     }
     // The customer explicitly LINKED products — those are authoritative for what
@@ -413,7 +436,7 @@ export async function gatherShopifyContext(input: {
         shownHandles.add(p.handle);
         parts.push(
           `Πιθανό προϊόν που περιγράφει ο πελάτης (ταυτοποιήθηκε με αναζήτηση του ονόματος στο eshop). ` +
-            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base)}`,
+            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base, input.productColor)}`,
         );
       }
     }
@@ -440,7 +463,7 @@ export async function gatherShopifyContext(input: {
         shownHandles.add(p.handle);
         parts.push(
           `Προϊόν από τα ΕΙΔΗ ΤΗΣ ΠΑΡΑΓΓΕΛΙΑΣ του πελάτη (δεν έδωσε link — ταυτοποιήθηκε από την παραγγελία του). ` +
-            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base)}`,
+            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base, input.productColor)}`,
         );
       }
     }
