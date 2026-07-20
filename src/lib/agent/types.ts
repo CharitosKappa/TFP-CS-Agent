@@ -122,6 +122,13 @@ export interface PromptContext {
    * into the prompt so the regenerated draft corrects the flagged issue.
    */
   reviewerGuidance?: string;
+  /**
+   * A hard caveat when a data source we NEEDED failed (e.g. the Odoo return
+   * lookup threw), so the draft must not assert facts it couldn't verify — e.g.
+   * telling a customer to "create an RMA" when we couldn't check whether one
+   * already exists. Rendered prominently so the model stays neutral and defers.
+   */
+  dataCaveat?: string;
 }
 
 export interface DraftResult {

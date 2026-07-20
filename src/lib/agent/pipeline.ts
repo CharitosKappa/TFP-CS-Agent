@@ -226,7 +226,8 @@ export async function draftReplyForInbound(
     (classification.escalationReasons ?? []).some(
       (r) => r === "product_defect" || r === "quality_complaint",
     );
-  if (odooLookupFailed && returnLikeCase) {
+  const odooFailedOnReturn = odooLookupFailed && returnLikeCase;
+  if (odooFailedOnReturn) {
     redline.escalate = true;
     if (!redline.reasons.includes("odoo_lookup_failed")) {
       redline.reasons.push("odoo_lookup_failed");
@@ -246,6 +247,12 @@ export async function draftReplyForInbound(
     relatedContext: input.relatedContext,
     resolutionContext: input.resolutionContext,
     reviewerGuidance: input.reviewerGuidance,
+    // The Odoo return lookup failed (after retries) on a return case: we could NOT
+    // verify whether an RMA already exists. Tell the draft to stay neutral and defer
+    // rather than assert "no return found" / hand out create-an-RMA portal steps.
+    dataCaveat: odooFailedOnReturn
+      ? "Ο έλεγχος του συστήματος επιστροφών (Odoo) απέτυχε προσωρινά, οπότε ΔΕΝ γνωρίζουμε αν υπάρχει ήδη ενεργό αίτημα επιστροφής (RMA) για αυτόν τον πελάτη/παραγγελία. ΜΗΝ πεις ότι δεν υπάρχει επιστροφή/RMA, ΜΗΝ δώσεις οδηγίες για δημιουργία νέου RMA ή για την πύλη επιστροφών, και ΜΗΝ δώσεις αριθμό waybill. Απάντησε ΟΥΔΕΤΕΡΑ και σύντομα: ότι ελέγχουμε την κατάσταση της επιστροφής/του αιτήματός του και θα επανέλθουμε σύντομα με ακριβείς οδηγίες."
+      : undefined,
   };
 
   const { content, promisesFollowUp, needsHumanAnswer, followUpTitle, followUpDetails } = await generateDraft(ctx);
