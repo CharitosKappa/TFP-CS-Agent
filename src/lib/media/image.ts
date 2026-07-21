@@ -73,11 +73,17 @@ export function extractDataUriImages(html: string): string[] {
 /**
  * An email "inline" (cid:) attachment this small is almost always a signature
  * logo or tracking pixel, not customer content — those we want to ignore. But
- * many mail clients embed a GENUINE customer photo inline too (isInline=true,
- * often 1–5 MB), so we only treat *small* inline attachments as cruft and keep
- * the large ones.
+ * many mail clients embed a GENUINE customer photo inline too (isInline=true),
+ * so we only treat *small* inline attachments as cruft and keep the rest.
+ *
+ * Kept deliberately low: a compressed phone photo (e.g. an iPhone JPEG inserted
+ * into Mail) can be only ~30–40 KB, so a high ceiling silently drops real
+ * customer photos and makes the agent re-ask for something already sent. Tracking
+ * pixels are <1 KB and most signature logos a few KB, so 10 KB filters the true
+ * cruft while letting genuine photos through. The mentionsAttachment safety net
+ * in inbound-media.ts backstops anything that still slips past.
  */
-export const INLINE_CRUFT_MAX_BYTES = 50_000;
+export const INLINE_CRUFT_MAX_BYTES = 10_000;
 
 export function isInlineCruft(a: { isInline: boolean; size: number }): boolean {
   return a.isInline && a.size <= INLINE_CRUFT_MAX_BYTES;

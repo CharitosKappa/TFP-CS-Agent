@@ -19,6 +19,23 @@ export interface InboundMedia {
   summary?: string;
 }
 
+// Customer wording that implies a photo/attachment came with the message. Safety
+// net: if we couldn't extract ANY image but the customer clearly refers to one,
+// we must never let the agent flatly claim "nothing arrived" — something was
+// likely sent that we couldn't read (inline image below the cruft floor, an
+// unsupported type, a client quirk), or, rarely, they forgot to attach it.
+const ATTACHMENT_HINT_RE =
+  /(φωτογραφ|φωτο|εικον|συνημμ|επισυναπτ|photo|picture|image|screenshot|attach|foto|bild|allegat|piece jointe|adjunt)/i;
+
+function mentionsAttachment(html: string): boolean {
+  const text = html
+    .replace(/<[^>]+>/g, " ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  return ATTACHMENT_HINT_RE.test(text);
+}
+
 /** Turns a base64 image payload into a model-ready InlineImage, downscaling when needed. */
 async function toInlineImage(base64: string): Promise<InlineImage | null> {
   // Trust the actual bytes, not any declared contentType: a mislabeled image
@@ -66,6 +83,15 @@ export async function fetchInboundMedia(
 
     const totalImages = imageAtts.length + embedded.length;
     if (totalImages === 0 && fileAtts.length === 0 && references.length === 0) {
+      // Nothing extractable — but if the customer's message REFERS to a photo/
+      // attachment, don't stay silent (which lets the agent deny receipt): flag it.
+      if (bodyHtml && mentionsAttachment(bodyHtml)) {
+        return {
+          images: [],
+          summary:
+            "Ο πελάτης ΑΝΑΦΕΡΕΤΑΙ σε φωτογραφία/συνημμένο, αλλά δεν κατάφερα να διαβάσω καμία εικόνα από το μήνυμα. ΜΗΝ πεις με βεβαιότητα ότι «δεν έφτασε κανένα συνημμένο». Πες ότι ενδέχεται να μην μπορέσαμε να ανοίξουμε το αρχείο και ζήτησέ του ευγενικά να το ξαναστείλει ως JPG/PNG· το θέμα ελέγχεται και από συνεργάτη.",
+        };
+      }
       return { images: [] };
     }
 
