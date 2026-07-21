@@ -137,17 +137,28 @@ function formatCustomer(c: ShopifyCustomerSummary): string {
     .join("\n");
 }
 
+// Surface the exact stock count only when it's LOW — enough to answer a
+// multi-quantity/same-size request ("δύο ζευγάρια στο 38/39") without flooding
+// every reply with numbers the model might then volunteer unprompted.
+const LOW_STOCK_THRESHOLD = 3;
+
 function formatProduct(p: ShopifyProductSummary): string {
   // Fit Advice drives size guidance (e.g. "true to size" → for a half/between size,
   // recommend the larger one — see knowledge/60-products-sizing.md).
-  const inStock = p.sizes.filter((s) => s.available).map((s) => s.size);
+  const fmtSize = (s: { size: string; quantity: number }) =>
+    s.quantity > 0 && s.quantity <= LOW_STOCK_THRESHOLD ? `${s.size} (μόνο ${s.quantity} τεμ.)` : s.size;
+  const inStock = p.sizes.filter((s) => s.available).map(fmtSize);
   const soldOut = p.sizes.filter((s) => !s.available).map((s) => s.size);
+  const lowStock = p.sizes.some((s) => s.available && s.quantity > 0 && s.quantity <= LOW_STOCK_THRESHOLD);
   return [
     `Προϊόν: ${p.title}${p.colorSku ? ` (SKU: ${p.colorSku})` : ""}`,
     p.fitAdvice ? `- Fit Advice (εφαρμογή): ${p.fitAdvice}` : "",
     p.fitAndSizing ? `- Οδηγίες μεγέθους/εφαρμογής: ${p.fitAndSizing}` : "",
     p.sizes.length
       ? `- Διαθέσιμα μεγέθη: ${inStock.join(", ") || "κανένα"}${soldOut.length ? ` · εξαντλημένα: ${soldOut.join(", ")}` : ""}`
+      : "",
+    lowStock
+      ? `- ΑΠΟΘΕΜΑ: όπου γράφει «μόνο N τεμ.» είναι το ΣΥΝΟΛΙΚΟ διαθέσιμο για το μέγεθος — ο πελάτης ΔΕΝ μπορεί να προσθέσει στο καλάθι περισσότερα από N τεμάχια αυτού του μεγέθους (γι' αυτό «δεν τον αφήνει» να παραγγείλει παραπάνω). Αν ζητά περισσότερα ζευγάρια από όσα υπάρχουν, πες πόσα υπάρχουν πραγματικά, μην τον στέλνεις να ξαναπροσπαθήσει.`
       : "",
     `- Notify-me (ειδοποίηση επαναδιαθεσιμότητας): ${p.notifyMeEnabled ? "ΕΝΕΡΓΟ — μπορείς να το προτείνεις" : "ΑΝΕΝΕΡΓΟ — ΜΗΝ προτείνεις «Notify me» γι' αυτό το προϊόν"}`,
   ]

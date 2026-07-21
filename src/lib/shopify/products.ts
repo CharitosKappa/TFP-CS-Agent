@@ -47,8 +47,8 @@ export interface ShopifyProductSummary {
   fitAndSizing?: string | null;
   /** custom.color_sku — the model+colour SKU (shared across sizes), e.g. "21344096". */
   colorSku?: string | null;
-  /** Per-size availability, from the product's variants. */
-  sizes: { size: string; available: boolean }[];
+  /** Per-size availability + stock count, from the product's variants. */
+  sizes: { size: string; available: boolean; quantity: number }[];
   /**
    * 5-digit master/model code, from a variant SKU (master + 3-digit colour +
    * 3-digit size). Same master + different colour = another colour of this model.
@@ -70,12 +70,13 @@ const PRODUCT_FIELDS = `
   notify: metafield(namespace: "custom", key: "disable_notify_me_feature") { value }
   category { name }
   collections(first: 40) { edges { node { handle title } } }
-  variants(first: 40) { edges { node { sku availableForSale selectedOptions { name value } } } }
+  variants(first: 40) { edges { node { sku availableForSale inventoryQuantity selectedOptions { name value } } } }
 `;
 
 interface Variant {
   sku: string | null;
   availableForSale: boolean;
+  inventoryQuantity: number | null;
   selectedOptions: { name: string; value: string }[];
 }
 interface ProductNode {
@@ -114,8 +115,8 @@ function sizeOf(v: { selectedOptions: { name: string; value: string }[] }): stri
 function toSummary(n: ProductNode): ShopifyProductSummary {
   const variants = n.variants.edges.map((e) => e.node);
   const sizes = variants
-    .map((v) => ({ size: sizeOf(v), available: v.availableForSale }))
-    .filter((s): s is { size: string; available: boolean } => !!s.size);
+    .map((v) => ({ size: sizeOf(v), available: v.availableForSale, quantity: Math.max(0, v.inventoryQuantity ?? 0) }))
+    .filter((s): s is { size: string; available: boolean; quantity: number } => !!s.size);
   const sku = variants.map((v) => v.sku).find((s) => s && /^\d{5}/.test(s)) ?? null;
   const categoryName = n.category?.name ?? null;
   const categoryCollectionHandle = categoryName
