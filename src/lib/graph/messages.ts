@@ -1,5 +1,6 @@
 import { isInlineCruft } from "../media/image";
 import { getEnv } from "../env";
+import { log } from "../observability/logger";
 import { GRAPH_BASE, graphFetch } from "./client";
 import type { GraphListResponse, GraphMessage } from "./types";
 
@@ -349,6 +350,55 @@ export async function markMessageRead(graphMessageId: string): Promise<void> {
     { method: "PATCH", body: JSON.stringify({ isRead: true }) },
     NO_RETRY,
   );
+}
+
+// Graph accepts a fileAttachment inline in the request up to ~3 MB; larger needs
+// an upload session, which isn't worth it for surfacing a review copy.
+const MAX_SURFACE_BYTES = 3_000_000;
+
+/**
+ * Customer photos sent from phone mail often arrive as INLINE attachments whose
+ * body <img> reference is broken (empty src, no cid), so Outlook shows only a
+ * non-openable "image0.jpeg" placeholder — the reviewer can't see the photo the
+ * agent's vision model already read. Add a NON-inline copy of each such photo to
+ * OUR mailbox copy of the message, so it appears as a normal, openable/download-
+ * able attachment. Touches only our received copy — never the customer. Idempotent
+ * (skips a photo whose "viewable-" copy already exists) and best-effort; returns
+ * the number of copies added.
+ */
+export async function makeInlinePhotosViewable(graphMessageId: string): Promise<number> {
+  // getMessageAttachments already drops inline cruft (logos/pixels) but keeps
+  // large inline photos — exactly the customer content we want to surface.
+  const { files } = await getMessageAttachments(graphMessageId);
+  const inlinePhotos = files.filter(
+    (a) => a.isInline && a.contentType.startsWith("image/") && a.contentBytes,
+  );
+  let added = 0;
+  for (const p of inlinePhotos) {
+    const copyName = `viewable-${p.name}`;
+    // Already surfaced on a prior run → skip so re-runs don't pile up copies.
+    if (files.some((f) => !f.isInline && f.name === copyName)) continue;
+    if (p.size > MAX_SURFACE_BYTES) {
+      log.warn("inline_photo_too_big_to_surface", { size: p.size });
+      continue;
+    }
+    await graphFetch(
+      `${mailboxPath()}/messages/${encodeURIComponent(graphMessageId)}/attachments`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: copyName,
+          contentType: p.contentType,
+          contentBytes: p.contentBytes,
+          isInline: false,
+        }),
+      },
+      NO_RETRY,
+    );
+    added++;
+  }
+  return added;
 }
 
 /**

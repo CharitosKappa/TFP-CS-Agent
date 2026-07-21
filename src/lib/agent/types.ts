@@ -38,6 +38,21 @@ export interface Classification {
    */
   productName?: string;
   /**
+   * A product code the customer quotes — an 8-digit colourway or 11-digit variant
+   * SKU (e.g. "24037035") — even when written as a BARE number with no "SKU"
+   * label. The regex extractor only catches "SKU:"-anchored numbers (to avoid
+   * grabbing order/phone numbers), so the classifier is what captures the common
+   * bare-code case. The most precise product key for the Shopify lookup.
+   */
+  productSku?: string;
+  /**
+   * A colour the customer wants for a product — especially when they want the SAME
+   * model in a DIFFERENT colour (e.g. "το ίδιο σε πράσινο" → "πράσινο"/"green"). Lets
+   * the lookup surface that model's colour siblings so the reply names the right
+   * colourway itself instead of asking the customer for a link/SKU.
+   */
+  productColor?: string;
+  /**
    * The customer is explicitly asking to RECEIVE or RESEND the return courier
    * voucher/label (e.g. "δεν βρίσκω το voucher", "στείλτε μου ξανά την ετικέτα").
    * Trigger for attaching the real voucher PDF from Odoo to the reply.
@@ -51,6 +66,24 @@ export interface Classification {
    */
   escalationReasons?: string[];
   sentiment: "positive" | "neutral" | "negative";
+  /**
+   * The sender is not a customer at all but a third party running UNSOLICITED
+   * B2B/commercial outreach — a supplier/manufacturer pitching products, wholesale
+   * or sourcing, dropshipping, or an agency selling SEO/marketing/IT/web services,
+   * investment, etc. These are skipped entirely (no draft, no reply, no task). Does
+   * NOT include press/media/influencer or brand-collaboration inquiries, which
+   * still escalate for a human (see the media_influencer red-line).
+   */
+  vendorPitch?: boolean;
+  /**
+   * The request most likely reached us BY MISTAKE — it concerns a product we
+   * clearly don't sell (we're a women's-footwear shop: shoes/sandals & related
+   * accessories) or an order evidently not ours, i.e. it belongs to a DIFFERENT
+   * retailer (even if the sender happens to also be our customer). Unlike a
+   * vendorPitch we still reply — a polite "you may have the wrong shop" — and
+   * escalate; we never invent a return or map it onto an unrelated order.
+   */
+  wrongRecipient?: boolean;
   /** One-line summary of what the customer wants. */
   summary: string;
   /**
@@ -105,6 +138,13 @@ export interface PromptContext {
    * into the prompt so the regenerated draft corrects the flagged issue.
    */
   reviewerGuidance?: string;
+  /**
+   * A hard caveat when a data source we NEEDED failed (e.g. the Odoo return
+   * lookup threw), so the draft must not assert facts it couldn't verify — e.g.
+   * telling a customer to "create an RMA" when we couldn't check whether one
+   * already exists. Rendered prominently so the model stays neutral and defers.
+   */
+  dataCaveat?: string;
 }
 
 export interface DraftResult {

@@ -1,6 +1,7 @@
 import { fmtDate } from "../util/date";
 import { log } from "../observability/logger";
 import {
+  fetchSalesDocType,
   findRmaRecordsByCustomerEmail,
   findRmaRecordsByName,
   findRmaRecordsByOrder,
@@ -13,6 +14,18 @@ import {
 // validated/locked) is "active" — a return still in progress. Adjust here if the
 // business treats "locked" as closed.
 const TERMINAL_STATES = new Set(["processed", "cancel", "invalid"]);
+
+// Operation-level retry for the whole Odoo lookup. resilientFetch already retries
+// WITHIN each request over a few seconds — but a real outage (e.g. the auth endpoint
+// down for a couple of minutes, as seen in production) outlasts that, and retrying
+// seconds apart just hammers a service that needs time to recover. So we wait a full
+// MINUTE between attempts, giving a transient failure real time to clear before we
+// give up and let the pipeline escalate. Only THROWN failures retry — a clean
+// "nothing found" does not. Trade-off: a persistent outage adds ~ATTEMPTS−1 minutes
+// per return message to that run; acceptable since it only happens during an outage.
+const ODOO_GATHER_ATTEMPTS = 3;
+const ODOO_RETRY_DELAY_MS = 60_000;
+const odooSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Compact, prompt-ready rendering of one RMA. Greek headers like the Shopify
@@ -46,6 +59,12 @@ function formatRma(r: RmaSummary): string {
     r.returnTrackingUrl
       ? `- Ετικέτα/voucher επιστροφής: έχει εκδοθεί και απεστάλη συνημμένη στο email αποδοχής του RMA`
       : "",
+    r.returnCarrier
+      ? `- Courier επιστροφής: ${r.returnCarrier} — η επιστροφή γίνεται με ΑΥΤΟΝ τον courier. ΜΗΝ υποθέτεις άλλον (π.χ. αν εδώ λέει «Box Now», ΜΗΝ δίνεις οδηγίες DHL/MyDHL+ και αντίστροφα)`
+      : "",
+    r.returnWaybill
+      ? `- Αριθμός waybill/tracking επιστροφής${r.returnCarrier ? ` (${r.returnCarrier})` : ""}: ${r.returnWaybill} — ΔΩΣ' ΤΟΝ ΑΠΕΥΘΕΙΑΣ στον πελάτη όπου χρειάζεται, αντί να τον παραπέμπεις γενικά στο email του RMA`
+      : "",
     items ? `- Είδη προς επιστροφή: ${items}` : "",
     // Business rule: one open RMA at a time — the portal rejects a second request
     // until the current one closes (processed/cancelled). Stated on ACTIVE RMAs so
@@ -75,10 +94,11 @@ export interface OdooGatherResult {
  * back to the most recent RMA of any state so the agent still has ground truth
  * for a just-completed return. When the customer explicitly asked for the return
  * voucher and the RMA has one, flags it for attachment and tells the agent to
- * reference it as attached. Best-effort: never throws — an Odoo failure must not
- * block drafting.
+ * reference it as attached. Returns undefined when nothing is found (a clean
+ * empty), but THROWS on a genuine Odoo failure (auth/RPC/network). One attempt —
+ * gatherOdooContext wraps this with retries.
  */
-export async function gatherOdooContext(input: {
+async function gatherOdooContextOnce(input: {
   customerEmail?: string;
   orderNumber?: string;
   /** Canonical RMA reference cited in the email (e.g. "RMA5278") — most precise key. */
@@ -110,11 +130,25 @@ export async function gatherOdooContext(input: {
     if (records.length === 0 && email) {
       records = await findRmaRecordsByCustomerEmail(email);
     }
-    if (records.length === 0) return undefined;
 
     // Records come back newest-first: prefer the latest active, else the newest.
     const chosenRecord =
-      records.find((r) => !TERMINAL_STATES.has(r.state || "")) ?? records[0];
+      records.length > 0 ? (records.find((r) => !TERMINAL_STATES.has(r.state || "")) ?? records[0]) : undefined;
+
+    // Sales-document type (τιμολόγιο vs απόδειξη) for the order — from the cited
+    // order number, else the found RMA's order. An INVOICED order restricts the
+    // return to refund + credit note (no Store Credit), so surface it EVEN when
+    // there's no RMA yet (a customer just asking how to return an invoiced order).
+    const docOrder =
+      orderNumber || (Array.isArray(chosenRecord?.order_id) ? chosenRecord!.order_id[1] : undefined);
+    const docType = await fetchSalesDocType(docOrder);
+    const docTypeLine =
+      docType === "invoice"
+        ? "- Παραστατικό πώλησης: ΤΙΜΟΛΟΓΙΟ (τιμολόγιο αγοράς). Στην επιστροφή διατίθεται ΜΟΝΟ επιστροφή χρημάτων με έκδοση ΠΙΣΤΩΤΙΚΟΥ τιμολογίου — το **Store Credit ΔΕΝ είναι διαθέσιμο**. ΜΗΝ προτείνεις Store Credit σε αυτή την περίπτωση."
+        : "";
+
+    if (!chosenRecord) return docTypeLine ? { text: docTypeLine } : undefined;
+
     const chosen = await hydrateRma(chosenRecord);
     let text = formatRma(chosen);
 
@@ -128,10 +162,36 @@ export async function gatherOdooContext(input: {
         " αυτόματα σε αυτή την απάντηση — ανάφερέ το στον πελάτη ως συνημμένο και" +
         " ΜΗΝ τον παραπέμπεις να το αναζητήσει αλλού.";
     }
-    return { text, voucherAttachmentId };
-  } catch {
-    // Keep PII out of logs; the lookup detail is logged in rma/client already.
+    return { text: [docTypeLine, text].filter(Boolean).join("\n"), voucherAttachmentId };
+  } catch (e) {
+    // A genuine Odoo failure (auth/RPC/network) is NOT "nothing found" (which
+    // returns undefined above). Rethrow so the wrapper can retry, then ultimately
+    // the pipeline can escalate. Keep PII out of logs (detail logged in rma/client).
     log.error("odoo_context_failed", {});
-    return undefined;
+    throw e;
   }
+}
+
+/**
+ * Retrying wrapper around gatherOdooContextOnce. A transient Odoo failure (e.g. the
+ * auth endpoint briefly down) must NOT make us draft blind — telling a customer to
+ * "create an RMA" for a return that already exists. Retries the whole lookup, waiting
+ * a full minute between attempts so a real blip has time to clear; a clean "nothing
+ * found" (undefined) returns at once (no retry). If every attempt fails it THROWS, so
+ * the pipeline escalates the reply (odoo_lookup_failed) instead of silently proceeding
+ * — while the pipeline's own catch still keeps drafting unblocked.
+ */
+export async function gatherOdooContext(
+  input: Parameters<typeof gatherOdooContextOnce>[0],
+): Promise<OdooGatherResult | undefined> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= ODOO_GATHER_ATTEMPTS; attempt++) {
+    try {
+      return await gatherOdooContextOnce(input);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < ODOO_GATHER_ATTEMPTS) await odooSleep(ODOO_RETRY_DELAY_MS);
+    }
+  }
+  throw lastErr ?? new Error("odoo_context_failed");
 }

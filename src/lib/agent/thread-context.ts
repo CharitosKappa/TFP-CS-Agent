@@ -1,5 +1,6 @@
-import { fetchConversationThread, searchMessagesByParticipant } from "../graph/messages";
+import { DRAFTED_CATEGORY, fetchConversationThread, searchMessagesByParticipant } from "../graph/messages";
 import { makeIsInternal, toBodyText } from "../graph/message-parse";
+import { judgeSameRequest } from "./dedup";
 
 export interface ThreadHistoryMessage {
   direction: "INBOUND" | "OUTBOUND";
@@ -102,4 +103,50 @@ export async function relatedThreadsFromGraph(
   });
   blocks.sort((a, b) => b.latest - a.latest);
   return blocks.slice(0, maxThreads).map((b) => b.text).join("\n\n");
+}
+
+/**
+ * Cross-thread duplicate check: has the SAME request from this customer ALREADY
+ * been drafted in a DIFFERENT recent thread? The in-batch consolidation only
+ * folds duplicates seen in the same run; when the customer re-sends the same
+ * issue under a new subject and a LATER run picks it up, the earlier one is
+ * already tagged handled and the new one would otherwise be drafted (and tasked)
+ * again. Here we look at the customer's recent ALREADY-DRAFTED inbound messages
+ * in other threads and, if the model is confident it's the same request, return
+ * the match so the caller can fold this one instead of re-drafting.
+ *
+ * Best-effort/conservative: null on error, no candidates, or any doubt (via
+ * judgeSameRequest). Bounded to recent, already-handled messages.
+ */
+export async function findHandledDuplicate(
+  email: string,
+  currentConversationId: string,
+  current: { subject?: string; body: string },
+  opts: { maxAgeDays?: number; maxCandidates?: number } = {},
+): Promise<{ conversationId: string; subject?: string } | null> {
+  const { maxAgeDays = 4, maxCandidates = 3 } = opts;
+  if (!current.body.trim()) return null;
+  let msgs;
+  try {
+    msgs = await searchMessagesByParticipant(email);
+  } catch {
+    return null;
+  }
+  const isInternal = makeIsInternal();
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  const candidates = msgs
+    .filter((m) => m.conversationId && m.conversationId !== currentConversationId)
+    .filter((m) => new Date(m.receivedDateTime).getTime() >= cutoff)
+    .filter((m) => !isInternal((m.from ?? m.sender)?.emailAddress?.address?.toLowerCase() ?? "")) // customer's own
+    .filter((m) => (m.categories ?? []).includes(DRAFTED_CATEGORY)) // already handled by a prior run
+    .sort((a, b) => new Date(b.receivedDateTime).getTime() - new Date(a.receivedDateTime).getTime())
+    .slice(0, maxCandidates);
+  for (const c of candidates) {
+    const body = toBodyText(c);
+    if (!body.trim()) continue;
+    if (await judgeSameRequest([current, { subject: c.subject ?? undefined, body }])) {
+      return { conversationId: c.conversationId, subject: c.subject ?? undefined };
+    }
+  }
+  return null;
 }

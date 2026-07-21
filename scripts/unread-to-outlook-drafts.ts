@@ -4,7 +4,7 @@ import { classifyEmail } from "../src/lib/agent/classify";
 import { draftReplyForInbound } from "../src/lib/agent/pipeline";
 import { judgeSameRequest } from "../src/lib/agent/dedup";
 import { fetchInboundMedia } from "../src/lib/agent/inbound-media";
-import { recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
+import { findHandledDuplicate, recentMessagesFromThread, relatedThreadsFromGraph } from "../src/lib/agent/thread-context";
 import { loadPolicies } from "../src/lib/knowledge/policies";
 import { gatherShopifyContext } from "../src/lib/shopify/context";
 import { gatherOdooContext } from "../src/lib/odoo/context";
@@ -15,6 +15,7 @@ import {
   createReplyDraft,
   fetchInboxMessages,
   flagMessage,
+  makeInlinePhotosViewable,
   markMessageRead,
   type OutgoingAttachment,
 } from "../src/lib/graph/messages";
@@ -157,8 +158,44 @@ async function main() {
         skipped++;
         continue;
       }
+      // Unsolicited B2B/supplier/agency solicitation — not a customer. We neither
+      // draft nor reply, and (per instruction) leave the message UNTOUCHED: no tag,
+      // no read, no task — so a human can still handle it manually if they choose.
+      if (classification.vendorPitch) {
+        console.log(`- skip (vendor/B2B solicitation, left untouched): ${msg.id.slice(0, 12)}…`);
+        skipped++;
+        continue;
+      }
+
+      // Cross-thread/cross-run dedup: the customer re-sent the SAME request under
+      // a NEW subject and a PRIOR run already drafted it in another thread (the
+      // in-batch fold above only catches same-run duplicates). Fold this one too —
+      // one draft/task already covers it — so we don't double-draft/double-task.
+      if (!keptId) {
+        const handled = await findHandledDuplicate(customer, msg.conversationId, { subject, body: text });
+        if (handled) {
+          const cats = Array.from(new Set([...(msg.categories ?? []), DRAFTED_CATEGORY, "TFP: Consolidated duplicate"]));
+          await flagMessage(msg.id, { categories: cats });
+          await markMessageRead(msg.id);
+          consolidatedDupes++;
+          console.log(`↯ same request already handled in thread ${handled.conversationId.slice(0, 12)}… — folded (cross-thread): ${msg.id.slice(0, 12)}…`);
+          continue;
+        }
+      }
 
       const media = await fetchInboundMedia(msg.id, msg.body?.content ?? undefined);
+      // Phone-mail photos often arrive as broken-inline attachments Outlook won't
+      // render or open. Surface them as normal, openable attachments on our copy of
+      // the inbound so the reviewer can see what the agent's vision model saw.
+      // Best-effort — never let this block drafting.
+      if (media.images.length) {
+        try {
+          const n = await makeInlinePhotosViewable(msg.id);
+          if (n) console.log(`  📎 surfaced ${n} inline photo(s) as openable attachment(s): ${msg.id.slice(0, 12)}…`);
+        } catch (e) {
+          console.error(`  ! could not surface inline photos: ${e instanceof Error ? e.message : e}`);
+        }
+      }
       // Thread-aware: pull prior messages of THIS conversation from Graph so the
       // draft is never blind to the history (no DB needed).
       const recentMessages = await recentMessagesFromThread(
@@ -203,6 +240,7 @@ async function main() {
             productSkus,
             productSize: c.productSize,
             productName: c.productName,
+            productColor: c.productColor,
             // "I ordered but got no confirmation email" cases → if no order is
             // found, check for an incomplete checkout and surface its recovery link.
             checkAbandonedCheckout: ["order_status", "payment", "shipping", "cancellation", "other"].includes(c.intent),

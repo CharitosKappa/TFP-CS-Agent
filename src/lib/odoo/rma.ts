@@ -93,6 +93,19 @@ export interface RmaSummary {
   refundPaymentStatus: string | null;
   /** Carrier return-label URL, when the RMA has been sent. */
   returnTrackingUrl: string | null;
+  /**
+   * RETURN waybill/tracking number (from the return picking's carrier_tracking_ref)
+   * — what the customer references to drop off / schedule / arrange the return.
+   * null when there's no return picking yet or no read access.
+   */
+  returnWaybill: string | null;
+  /**
+   * The RETURN courier for this RMA (e.g. "Box Now", "DHL Express"), from the
+   * return picking's carrier. DIFFERENT couriers have DIFFERENT return processes
+   * (a Box Now locker is not a DHL pickup), so the reply must key off this — never
+   * assume DHL. null when unknown.
+   */
+  returnCarrier: string | null;
   /** Odoo ir.attachment id of the courier voucher PDF on this RMA, if present. */
   voucherAttachmentId: number | null;
   createdAt: string | null;
@@ -197,11 +210,80 @@ async function fetchServiceCost(moveId: Many2One): Promise<number> {
   }
 }
 
+/**
+ * The RETURN shipment for an RMA — its waybill/tracking number AND its courier
+ * (Box Now, DHL Express, …). Both live on the RETURN picking (stock.picking) whose
+ * `origin` is the RMA name (carrier_tracking_ref + carrier_id) — NOT on the RMA
+ * record itself. Matched on origin = RMA name EXACTLY: a `like` match false-hits
+ * unrelated orders (e.g. "6785" hits order 16785). Best-effort: nulls on no picking
+ * / no read access. The courier matters — different couriers have different return
+ * processes, so the reply must never assume DHL.
+ */
+async function fetchReturnShipment(
+  rmaName: string | false,
+): Promise<{ waybill: string | null; carrier: string | null }> {
+  const empty = { waybill: null, carrier: null };
+  if (!rmaName) return empty;
+  try {
+    const rows = await execKw<
+      { carrier_tracking_ref: string | false; name: string | false; picking_type_id: Many2One; carrier_id: Many2One }[]
+    >(
+      "stock.picking", "search_read",
+      [[["origin", "=", rmaName]]],
+      { fields: ["carrier_tracking_ref", "name", "picking_type_id", "carrier_id"], order: "id desc" },
+    );
+    const withRef = rows.filter((p) => p.carrier_tracking_ref);
+    if (withRef.length === 0) return empty;
+    // Prefer the RETURN-receipt picking (name "RET/…" or a return-type name).
+    const ret =
+      withRef.find((p) => /^RET/i.test(p.name || "") || /return/i.test(m2oName(p.picking_type_id) || "")) ??
+      withRef[0];
+    // Normalise the two carriers we care about; otherwise pass the raw label.
+    const raw = m2oName(ret.carrier_id);
+    const carrier = raw ? (/box\s*now/i.test(raw) ? "Box Now" : /dhl/i.test(raw) ? "DHL" : raw) : null;
+    return { waybill: ret.carrier_tracking_ref || null, carrier };
+  } catch {
+    return empty;
+  }
+}
+
+export type SalesDocType = "invoice" | "receipt";
+
+/**
+ * The sales-document type issued for an order — a τιμολόγιο (business INVOICE; e.g.
+ * journal "Τιμολόγιο Πώλησης", name "ΤΠ…") vs an απόδειξη λιανικής (retail RECEIPT;
+ * "ΑΛΠ…") — read from the posted customer invoice (account.move) on the order. Both
+ * are move_type out_invoice; the journal/name tells them apart. Matters for returns:
+ * an INVOICED order can be refunded ONLY with a credit note (πιστωτικό) — Store
+ * Credit is not available. Returns null (→ normal flow) unless we POSITIVELY identify
+ * the type, so we never wrongly restrict a retail order. Best-effort.
+ */
+export async function fetchSalesDocType(orderNumber: string | undefined): Promise<SalesDocType | null> {
+  const o = orderNumber?.replace(/^#/, "").trim();
+  if (!o) return null;
+  try {
+    const rows = await execKw<{ journal_id: Many2One; name: string | false }[]>(
+      "account.move", "search_read",
+      [[["invoice_origin", "=", o], ["move_type", "=", "out_invoice"], ["state", "=", "posted"]]],
+      { fields: ["journal_id", "name"], order: "id desc", limit: 1 },
+    );
+    const r = rows[0];
+    if (!r) return null;
+    const label = `${m2oName(r.journal_id) ?? ""} ${r.name ?? ""}`;
+    if (/αποδειξ|λιανικ|ΑΛΠ/i.test(label)) return "receipt";
+    if (/τιμολ|ΤΠ/i.test(label)) return "invoice";
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function toSummary(
   r: RmaRecord,
   lines: Map<number, RmaLine>,
   voucherAttachmentId: number | null,
   serviceCost: number,
+  returnShipment: { waybill: string | null; carrier: string | null },
 ): RmaSummary {
   const stateCode = r.state || "";
   return {
@@ -220,6 +302,8 @@ function toSummary(
       ? (REFUND_PAYMENT_STATE[r.reverse_move_payment_state] ?? r.reverse_move_payment_state)
       : null,
     returnTrackingUrl: orNull(r.dhl_locator_url),
+    returnWaybill: returnShipment.waybill,
+    returnCarrier: returnShipment.carrier,
     voucherAttachmentId,
     createdAt: orNull(r.create_date),
     lines: (r.line_ids ?? []).map((id) => lines.get(id)).filter((l): l is RmaLine => Boolean(l)),
@@ -237,12 +321,13 @@ async function searchRmaRecords(domain: unknown[], limit = 10): Promise<RmaRecor
 
 /** Adds the lines + voucher attachment + service cost to a single record (fetched concurrently). */
 export async function hydrateRma(r: RmaRecord): Promise<RmaSummary> {
-  const [lines, vouchers, serviceCost] = await Promise.all([
+  const [lines, vouchers, serviceCost, returnShipment] = await Promise.all([
     fetchLines(r.line_ids ?? []),
     fetchVoucherIds([r.id]),
     fetchServiceCost(r.service_cost_move_id),
+    fetchReturnShipment(r.name),
   ]);
-  return toSummary(r, lines, vouchers.get(r.id) ?? null, serviceCost);
+  return toSummary(r, lines, vouchers.get(r.id) ?? null, serviceCost, returnShipment);
 }
 
 /**

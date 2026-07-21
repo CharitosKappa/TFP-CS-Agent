@@ -59,6 +59,16 @@ function formatDeliveryEstimate(
   return parts.join(" · ");
 }
 
+// EU-27 (ISO-2). Flags whether a return would ship FROM the EU: DHL courier
+// PICKUP via MyDHL+ works for EU origins, but for a THIRD country (e.g. GB) DHL
+// rejects it as an import ("pickup cannot be scheduled for an import shipment"),
+// so those returns go via drop-off / local DHL instead (see returns knowledge).
+// Best-effort — an unknown/empty country simply gets no flag.
+const EU_COUNTRIES = new Set([
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+  "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+]);
+
 function formatOrder(o: ShopifyOrderSummary): string {
   const items = o.lineItems
     .map((li) => `${li.quantity}× ${li.title}${li.variantTitle ? ` (${li.variantTitle})` : ""}${li.sku ? ` (SKU: ${li.sku})` : ""}`)
@@ -71,13 +81,32 @@ function formatOrder(o: ShopifyOrderSummary): string {
   // that's the real signal, so don't clutter the block with both.
   const estimate =
     o.deliveryEstimate && !tracking ? formatDeliveryEstimate(o.deliveryEstimate) : "";
+  // Return window is 30 days from the ORDER date — flag when it's passed so the
+  // reply doesn't direct an out-of-window return to the RMA portal (see returns
+  // knowledge). Computed relative to now; a defective/wrong item is exempt.
+  const daysSinceOrder = Math.floor((Date.now() - new Date(o.createdAt).getTime()) / 86_400_000);
+  const returnWindow =
+    daysSinceOrder > 30
+      ? `- ΠΡΟΣΟΧΗ (επιστροφές): η παραγγελία έγινε πριν ${daysSinceOrder} ημέρες — ΠΕΡΑΝ του 30ήμερου παραθύρου επιστροφής (από ημ/νία παραγγελίας). Μη διαθέσιμη κανονική επιστροφή/RMA — ΕΞΑΙΡΕΣΗ μόνο ελαττωματικό/λάθος προϊόν.`
+      : "";
+  // Shipping origin for a return + an EU / third-country flag, so the reply gives
+  // the right DHL return route (EU → MyDHL+ pickup; third country → drop-off /
+  // local DHL). See the returns knowledge.
+  const shipCountry = o.shippingCountry?.toUpperCase() ?? "";
+  const shipTo = [o.shippingCity, shipCountry].filter(Boolean).join(", ");
+  const euFlag = shipCountry
+    ? EU_COUNTRIES.has(shipCountry)
+      ? " (εντός ΕΕ)"
+      : " (ΕΚΤΟΣ ΕΕ — τρίτη χώρα)"
+    : "";
   return [
     `Παραγγελία ${o.name} (${fmtDate(o.createdAt)})`,
+    returnWindow,
     `- Εκτέλεση: ${o.fulfillmentStatus} | Κατάσταση πληρωμής: ${o.financialStatus}`,
     o.paymentMethod ? `- Τρόπος πληρωμής: ${o.paymentMethod}` : "",
     `- Σύνολο: ${o.total} ${o.currency}`,
     o.shippingMethod ? `- Τρόπος αποστολής (courier): ${o.shippingMethod}` : "",
-    o.shippingCity ? `- Αποστολή προς: ${o.shippingCity}` : "",
+    shipTo ? `- Αποστολή προς: ${shipTo}${euFlag}` : "",
     items ? `- Είδη: ${items}` : "",
     tracking ? `- Tracking: ${tracking}` : "",
     estimate ? `- Εκτιμώμενοι χρόνοι (ενδεικτικοί, όχι εγγύηση): ${estimate}` : "",
@@ -149,13 +178,34 @@ function euSizeCandidates(asked: string): string[] {
   return [...out];
 }
 
-async function productBlock(p: ShopifyProductSummary, askedSize: string | undefined, base: string): Promise<string> {
+async function productBlock(
+  p: ShopifyProductSummary,
+  askedSize: string | undefined,
+  base: string,
+  wantedColour?: string,
+): Promise<string> {
   let block = formatProduct(p);
   // Match the asked size against the catalog's EU sizes, accepting dual/regional
   // forms ("4/37") and bare UK sizes ("4" → EU 37) — a strict equality check
   // would miss a sold-out size and never surface its colour-sibling alternative.
   const candidates = askedSize ? euSizeCandidates(askedSize) : [];
   const askedEntry = candidates.length ? p.sizes.find((s) => candidates.includes(s.size)) : undefined;
+  // Customer wants the SAME model in a DIFFERENT colour: surface the model's colour
+  // siblings (with the asked size's availability) so the reply names the right
+  // colourway itself — never ask the customer for a link/SKU they don't have. This
+  // is independent of the sold-out branch below (the ordered colour may well have
+  // the size; the point is a different colour).
+  if (wantedColour && p.master) {
+    const size = askedEntry?.size ?? candidates[0];
+    if (size) {
+      const sibs = (await colourSiblingsWithSize(p.master, size).catch(() => []))
+        .filter((s) => s.handle !== p.handle);
+      block += sibs.length
+        ? `\n- Ο πελάτης ζητά ΑΛΛΟ ΧΡΩΜΑ («${wantedColour}») του ίδιου μοντέλου. Χρώματα του μοντέλου διαθέσιμα στο μέγεθος ${size} — βρες αυτό που ταιριάζει και δώσε σύνδεσμο+SKU· ΜΗΝ ζητάς SKU/σύνδεσμο από τον πελάτη:\n` +
+            sibs.map((s) => `  • ${s.title}${s.colorSku ? ` (SKU: ${s.colorSku})` : ""}: ${productUrl(s.handle, base)}`).join("\n")
+        : `\n- Ο πελάτης ζητά άλλο χρώμα («${wantedColour}») στο μέγεθος ${size}, αλλά ΔΕΝ βρέθηκε άλλο χρώμα του μοντέλου διαθέσιμο σε αυτό το μέγεθος — ενημέρωσέ τον ανάλογα (ΜΗΝ ζητάς SKU).`;
+    }
+  }
   if (askedEntry && !askedEntry.available) {
     const size = askedEntry.size; // normalized EU catalog size, e.g. "37"
     // Odoo restock signal for THIS size (best-effort): sold out on Shopify/LGK but
@@ -215,6 +265,8 @@ export async function gatherShopifyContext(input: {
   productSize?: string;
   /** Product name the customer typed (no link) — used to infer a category size link. */
   productName?: string;
+  /** Colour the customer wants (esp. same model, different colour) — surfaces the model's colour siblings. */
+  productColor?: string;
   /**
    * When true AND no order is found for the customer, look up a recent INCOMPLETE
    * checkout (abandoned cart) for their email — for "I ordered but got no
@@ -241,6 +293,14 @@ export async function gatherShopifyContext(input: {
       if (order && !foreign) {
         parts.push(formatOrder(order));
         surfacedOrders.push(order);
+      } else if (!order) {
+        // The cited order number does NOT exist in our system. Flag it explicitly so
+        // the reply doesn't silently map it onto a DIFFERENT order the customer has,
+        // or invent a process for it — a not-found number often means a typo or an
+        // email meant for another retailer (see the wrong-recipient guidance).
+        parts.push(
+          `ΠΡΟΣΟΧΗ: η παραγγελία #${input.orderNumber.replace(/^#/, "")} που ανέφερε ο πελάτης ΔΕΝ βρέθηκε στο σύστημά μας. ΜΗΝ την ταυτίζεις με άλλη παραγγελία του πελάτη και ΜΗΝ εφευρίσκεις διαδικασία γι' αυτήν.`,
+        );
       }
     }
     let customerCountry: string | null = null;
@@ -342,7 +402,7 @@ export async function gatherShopifyContext(input: {
         if (!p || shownHandles.has(p.handle)) continue;
         resolvedProduct = true;
         shownHandles.add(p.handle);
-        parts.push(await productBlock(p, input.productSize, base));
+        parts.push(await productBlock(p, input.productSize, base, input.productColor));
       }
     }
     if (input.productHandles?.length) {
@@ -355,7 +415,7 @@ export async function gatherShopifyContext(input: {
         if (!p) continue;
         resolvedProduct = true;
         shownHandles.add(p.handle);
-        parts.push(await productBlock(p, input.productSize, base));
+        parts.push(await productBlock(p, input.productSize, base, input.productColor));
       }
     }
     // The customer explicitly LINKED products — those are authoritative for what
@@ -376,7 +436,7 @@ export async function gatherShopifyContext(input: {
         shownHandles.add(p.handle);
         parts.push(
           `Πιθανό προϊόν που περιγράφει ο πελάτης (ταυτοποιήθηκε με αναζήτηση του ονόματος στο eshop). ` +
-            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base)}`,
+            `Αν ΔΕΝ ταιριάζει με την περιγραφή του, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base, input.productColor)}`,
         );
       }
     }
@@ -403,7 +463,7 @@ export async function gatherShopifyContext(input: {
         shownHandles.add(p.handle);
         parts.push(
           `Προϊόν από τα ΕΙΔΗ ΤΗΣ ΠΑΡΑΓΓΕΛΙΑΣ του πελάτη (δεν έδωσε link — ταυτοποιήθηκε από την παραγγελία του). ` +
-            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base)}`,
+            `Αν ΔΕΝ ταιριάζει με το προϊόν που περιγράφει ο πελάτης, αγνόησέ το και ζήτησε ευγενικά τον σύνδεσμο ή το SKU:\n${await productBlock(p, input.productSize, base, input.productColor)}`,
         );
       }
     }
